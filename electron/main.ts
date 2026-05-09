@@ -12,7 +12,7 @@ let pythonProcess: ChildProcess | null = null;
 
 // Notification listener
 ipcMain.on('show-notification', (event, arg) => {
-  const { title, text, image, rarity, gameTitle } = arg;
+  const { title, text, image, rarity, gameTitle, soundPath } = arg;
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width } = primaryDisplay.workAreaSize;
   
@@ -29,6 +29,7 @@ ipcMain.on('show-notification', (event, arg) => {
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
+      autoplayPolicy: 'no-user-gesture-required'
     }
   });
 
@@ -40,7 +41,8 @@ ipcMain.on('show-notification', (event, arg) => {
     text: text || '',
     image: image || '',
     rarity: rarity || 'common',
-    gameTitle: gameTitle || ''
+    gameTitle: gameTitle || '',
+    soundPath: soundPath || ''
   });
 
   notificationWindow.loadURL(`${baseUrl}#/notification?${queryParams.toString()}`);

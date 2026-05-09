@@ -24,11 +24,11 @@ import { useState, useEffect, useMemo, useCallback, useRef, ChangeEvent } from "
 import { Routes, Route, useSearchParams } from "react-router-dom";
 
 // IPC helper
-const sendNotification = (title: string, text: string, image?: string, rarity?: string, gameTitle?: string) => {
+const sendNotification = (title: string, text: string, image?: string, rarity?: string, gameTitle?: string, soundPath?: string) => {
     if (window.require) {
         try {
             const { ipcRenderer } = window.require('electron');
-            ipcRenderer.send('show-notification', { title, text, image, rarity, gameTitle });
+            ipcRenderer.send('show-notification', { title, text, image, rarity, gameTitle, soundPath });
         } catch (e) {
             console.error('Electron IPC not available', e);
         }
@@ -42,19 +42,24 @@ const NotificationPopup = () => {
     const image = params.get('image') || '';
     const rarity = params.get('rarity') || 'common';
     const gameTitle = params.get('gameTitle') || '';
+    const soundPath = params.get('soundPath') || '';
   
     useEffect(() => {
-      // Play sound based on rarity
+      // Play sound based on soundPath or rarity fallback
       const soundUrls = {
         common: "https://assets.mixkit.co/active_storage/sfx/2012/2012-preview.mp3",
         rare: "https://assets.mixkit.co/active_storage/sfx/2013/2013-preview.mp3",
         ultrarare: "https://assets.mixkit.co/active_storage/sfx/2014/2014-preview.mp3",
         platinum: "https://assets.mixkit.co/active_storage/sfx/2015/2015-preview.mp3"
       };
-      const audio = new Audio((soundUrls as any)[rarity] || soundUrls.common);
+      
+      const absoluteSoundUrl = soundPath || (soundUrls as any)[rarity] || soundUrls.common;
+      const audio = new Audio(absoluteSoundUrl);
       audio.volume = 0.8;
-      audio.play().catch(() => {});
-    }, [rarity]);
+      audio.play().catch((err) => {
+        console.error("Audio playback blocked or failed:", err);
+      });
+    }, [soundPath, rarity]);
   
     return (
       <div className="w-full h-full p-2 overflow-hidden bg-transparent">
@@ -249,7 +254,8 @@ function Dashboard() {
           notif.description || notif.text, 
           notif.gameIcon || notif.icon_url, 
           notif.rarity || 'common', 
-          notif.gameTitle
+          notif.gameTitle,
+          getAudioUrl(notif.rarity || "common")
         );
       }, index * 1000); // Stagger notifications
     });
@@ -604,9 +610,10 @@ function Dashboard() {
 
     const icon = selectedGame?.icon || "https://images.unsplash.com/photo-1612287230202-1ff1d85d1bdf?w=100&h=100&fit=crop";
     const gameTitle = selectedGame?.title || "Universal Hub";
+    const soundPath = getAudioUrl(rarity);
 
     // IPC Trigger
-    sendNotification(configData.title, configData.desc, icon, rarity, gameTitle);
+    sendNotification(configData.title, configData.desc, icon, rarity, gameTitle, soundPath);
   };
 
   const handleSoundUpload = (rarity: string, e: ChangeEvent<HTMLInputElement>) => {
@@ -629,33 +636,18 @@ function Dashboard() {
   };
 
   const replayNotification = (ach: Achievement, game: Game) => {
-    const id = Date.now();
-    
-    // Simple rarity logic: if it's the last one or marked somehow? 
     // Usually we don't have rarity in the achievement object yet, default to rare.
-    // However, if the title looks like a 100% completion, we could trigger platinum.
     const rarity = "rare"; 
+    const soundPath = getAudioUrl(rarity);
     
-    const newNotification = {
-      id,
-      title: ach.title,
-      description: ach.description,
-      rarity: rarity,
-      gameIcon: ach.icon_url || game.icon,
-      gameTitle: game.title,
-      platformLabel: game.platform === "PS3" ? "Trophy Earned" : "Achievement Unlocked"
-    };
-
-    setNotifications(prev => [...prev, newNotification]);
-    
-    const soundUrl = getAudioUrl(rarity);
-    const audio = new Audio(soundUrl);
-    audio.volume = notificationVolume / 100;
-    audio.play().catch(() => {});
-
-    setTimeout(() => {
-      setNotifications(prev => prev.filter(n => n.id !== id));
-    }, notificationDuration * 1000);
+    sendNotification(
+      ach.title, 
+      ach.description, 
+      ach.icon_url || game.icon, 
+      rarity, 
+      game.title,
+      soundPath
+    );
   };
 
   const handleDebugTest = async () => {
