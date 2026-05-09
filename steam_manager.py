@@ -61,7 +61,7 @@ class SteamGame:
         self.name = name
         self.playtime_forever = playtime_forever # percekben
         self.icon_url = f"http://media.steampowered.com/steamcommunity/public/images/apps/{appid}/{img_icon_url}.jpg"
-        self.header_image_url = f"https://capsule_main.fastly.steamstatic.com/apps/{appid}/header.jpg"
+        self.header_image = f"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/{appid}/header.jpg"
         self.achievements: List[Achievement] = []
         self.platform = "Steam"
 
@@ -78,7 +78,7 @@ class SteamGame:
             "name": self.name,
             "playtime_hours": round(self.playtime_forever / 60, 1),
             "icon_url": self.icon_url,
-            "header_image_url": self.header_image_url,
+            "header_image": self.header_image,
             "platform": self.platform,
             "completion_rate": self.completion_rate,
             "total_achievements": len(self.achievements),

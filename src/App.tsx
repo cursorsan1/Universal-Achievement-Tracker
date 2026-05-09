@@ -128,8 +128,8 @@ interface Game {
   totalCount?: number;
   consoleName?: string;
   scid?: string;
+  header_image?: string;
   headerImage?: string;
-  header_image_url?: string;
   cover_url?: string;
   achievements?: Achievement[];
 }
@@ -299,7 +299,7 @@ function Dashboard() {
               completion: g.completion_rate,
               playtime: `${g.playtime_hours} óra`,
               icon: g.icon_url,
-              header_image_url: g.header_image_url,
+              header_image: g.header_image,
               color: g.completion_rate === 100 ? "from-yellow-400/20 to-yellow-600/0" : "from-indigo-500/10 to-transparent",
               platformColor: "text-slate-200 bg-slate-700/50",
               unlockedCount: g.unlocked_achievements,
@@ -432,7 +432,7 @@ function Dashboard() {
             completion: g.completion_rate,
             playtime: `${g.playtime_hours} óra`,
             icon: g.icon_url,
-            header_image_url: g.header_image_url,
+            header_image: g.header_image,
             headerImage: g.header_image,
             cover_url: g.cover_url,
             color: g.completion_rate === 100 ? "from-yellow-400/20 to-yellow-600/0" : "from-indigo-500/10 to-transparent",
@@ -596,8 +596,8 @@ function Dashboard() {
 
     if (type === 'header') {
       if (platform === 'STEAM' || platform === 'GOLDBERG') {
-        if (game.header_image_url) return game.header_image_url;
-        // Use proxy for Steam and Goldberg for banner images
+        if (game.header_image) return game.header_image;
+        // Fallback to proxy if no direct high-res URL
         return `/api/proxy-image?appid=${encodeURIComponent(getCleanId(game.id))}&platform=${platform}`;
       }
       if (platform === 'RETROACHIEVEMENTS') {
@@ -1476,11 +1476,17 @@ function Dashboard() {
                             <img 
                               src={getImageSource(game, 'icon')} 
                               alt={game.title}
-                              className="w-full h-auto rounded-xl object-cover ring-2 ring-slate-800 bg-slate-800 shadow-lg border border-slate-700/50 transition-transform group-hover:scale-[1.02]"
+                              className="w-full h-auto rounded-xl object-cover ring-2 ring-slate-800 bg-slate-800 shadow-lg border border-slate-700/50 transition-transform group-hover:scale-[1.02] aspect-[2/3]"
                               crossOrigin={['RetroAchievements', 'Steam', 'Goldberg'].includes(game.platform) ? undefined : "anonymous"}
                               referrerPolicy="no-referrer"
                               onError={(e) => {
-                                (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=300&h=450&fit=crop&q=40";
+                                const target = e.target as HTMLImageElement;
+                                if (game.platform === 'Steam' || game.platform === 'Goldberg') {
+                                  const appId = getCleanId(game.id);
+                                  target.src = `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/capsule_616x353.jpg`;
+                                } else {
+                                  target.src = "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=300&h=450&fit=crop&q=40";
+                                }
                               }}
                             />
                             
@@ -1604,7 +1610,13 @@ function Dashboard() {
                       crossOrigin={['RetroAchievements', 'Steam', 'Goldberg'].includes(selectedGame.platform) ? undefined : "anonymous"}
                       referrerPolicy="no-referrer"
                       onError={(e) => {
-                        (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=300&h=450&fit=crop&q=40";
+                        const target = e.target as HTMLImageElement;
+                        if (selectedGame?.platform === 'Steam' || selectedGame?.platform === 'Goldberg') {
+                          const appId = getCleanId(selectedGame.id);
+                          target.src = `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/capsule_616x353.jpg`;
+                        } else {
+                          target.src = "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=300&h=450&fit=crop&q=40";
+                        }
                       }}
                     />
                </div>
@@ -1619,7 +1631,13 @@ function Dashboard() {
                         crossOrigin={['RetroAchievements', 'Steam', 'Goldberg'].includes(selectedGame.platform) ? undefined : "anonymous"}
                         referrerPolicy="no-referrer"
                         onError={(e) => {
-                          (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=300&h=450&fit=crop&q=80";
+                          const target = e.target as HTMLImageElement;
+                          if (selectedGame?.platform === 'Steam' || selectedGame?.platform === 'Goldberg') {
+                            const appId = getCleanId(selectedGame.id);
+                            target.src = `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/capsule_616x353.jpg`;
+                          } else {
+                            target.src = "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=300&h=450&fit=crop&q=80";
+                          }
                         }}
                       />
                       {selectedGame.completion === 100 && (
