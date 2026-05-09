@@ -107,7 +107,7 @@ function Dashboard() {
     
     // Use proxy for Steam CDN images to fix CORS and Protocol issues
     if (!useProxy) return finalUrl;
-    return `/api/proxy-image?url=${encodeURIComponent(finalUrl)}`;
+    return `/api/proxy-image?url=${encodeURIComponent(finalUrl)}&appid=${cleanAppId}`;
   }, []);
 
   const addLog = useCallback((msg: string, type: 'info' | 'error' = 'info') => {
@@ -373,13 +373,14 @@ function Dashboard() {
     if (type === 'achievement') {
       if (platform === 'RETROACHIEVEMENTS') {
         // Direct pass, no proxy, no modifications. RetroAchievements URLs are reliable.
-        return data?.icon_url || `https://api.dicebear.com/7.x/identicon/svg?seed=${data?.api_id}`;
+        return data?.icon_url || "";
       }
       if (platform === 'STEAM' || platform === 'GOLDBERG') {
-        // Use proxy for achievements as they are usually small and often on different CDN subdomains
-        return getSteamImageUrl(game.id, data?.original_hash || data?.icon_url, true);
+        // Use the achievement proxy endpoint
+        const originalUrl = getSteamImageUrl(game.id, data?.original_hash || data?.icon_url, false);
+        return `/api/proxy-achievement?url=${encodeURIComponent(originalUrl)}`;
       }
-      return data?.icon_url || `https://api.dicebear.com/7.x/identicon/svg?seed=${data?.api_id}`;
+      return data?.icon_url || "";
     }
 
     if (type === 'header') {
@@ -391,8 +392,8 @@ function Dashboard() {
         // Use proxy for Steam and Goldberg for banner images
         return `/api/proxy-image?appid=${encodeURIComponent(getCleanId(game.id))}&platform=${platform}`;
       }
-      // For all other platforms, return original icon/image URL directly
-      return game.icon || "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=300&h=450&fit=crop&q=40";
+      // For all other platforms, return headerImage directly without proxy
+      return game.headerImage || game.icon || "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=300&h=450&fit=crop&q=40";
     }
 
     // Default icon (Library view)
@@ -1356,6 +1357,7 @@ function Dashboard() {
             <div className="relative w-full bg-[#0D0D14] border-b border-slate-800 shadow-2xl overflow-hidden shrink-0">
                <div className="absolute inset-0 opacity-10 blur-3xl scale-125 pointer-events-none">
                     <img 
+                      key={selectedGame.id}
                       src={getImageSource(selectedGame, 'header')} 
                       alt="" 
                       className="w-full h-full object-cover"
@@ -1371,7 +1373,7 @@ function Dashboard() {
                   <div className="flex flex-col md:flex-row gap-6 items-center">
                     <div className="shrink-0 relative">
                       <img 
-                        src={getImageSource(selectedGame, 'header')} 
+                        src={getImageSource(selectedGame, 'header')}
                         alt={selectedGame.title}
                         className={`${(selectedGame.platform === 'Steam' || selectedGame.platform === 'Goldberg') ? 'w-[460px] h-[215px]' : 'w-24 h-36 md:w-28 md:h-40 lg:w-36 lg:h-52'} object-cover rounded-xl shadow-2xl ring-1 ring-slate-700/50 bg-slate-800 border border-white/10`}
                         crossOrigin={['RetroAchievements', 'Steam', 'Goldberg'].includes(selectedGame.platform) ? undefined : "anonymous"}
@@ -1487,6 +1489,7 @@ function Dashboard() {
                       >
                          <div className="relative shrink-0">
                           <img 
+                            key={`ach-${ach.api_id}`}
                             src={getImageSource(selectedGame, 'achievement', ach)} 
                             alt={ach.title}
                             crossOrigin={selectedGame && ['RetroAchievements', 'Steam', 'Goldberg'].includes(selectedGame.platform) ? undefined : "anonymous"}
@@ -1494,7 +1497,7 @@ function Dashboard() {
                             onError={(e) => {
                               const target = e.target as HTMLImageElement;
                               console.error("❌ Kép betöltési hiba:", target.src);
-                              target.src = "https://api.dicebear.com/7.x/identicon/svg?seed=" + ach.api_id;
+                              // target.src = "https://api.dicebear.com/7.x/identicon/svg?seed=" + ach.api_id;
                               addLog(`FAILED TO LOAD: ${target.src}`, 'error');
                             }}
                             className={`w-12 h-12 md:w-14 md:h-14 rounded-lg object-cover shadow-lg border ${

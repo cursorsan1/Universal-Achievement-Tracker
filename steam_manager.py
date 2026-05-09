@@ -79,9 +79,12 @@ class SteamManager:
             
             games = []
             for item in data.get("response", {}).get("games", []):
+                app_id = item["appid"]
+                game_name = item["name"]
+                print(f"DEBUG: Processing game {game_name} with AppID {app_id}")
                 game = SteamGame(
-                    appid=item["appid"],
-                    name=item["name"],
+                    appid=app_id,
+                    name=game_name,
                     playtime_forever=item.get("playtime_forever", 0),
                     img_icon_url=item.get("img_icon_url", "")
                 )

@@ -57,8 +57,36 @@ const CACHE_DIR = "cache";
 const NOTIFIED_CACHE_FILE = path.join(CACHE_DIR, "notified_achievements.json");
 const SCRAPE_CACHE_FILE = path.join(CACHE_DIR, "scraped_images.json");
 
-if (!fs.existsSync(CACHE_DIR)) {
-  fs.mkdirSync(CACHE_DIR);
+// Cleanup cache on startup
+if (fs.existsSync(CACHE_DIR)) {
+  fs.rmSync(CACHE_DIR, { recursive: true, force: true });
+}
+fs.mkdirSync(CACHE_DIR);
+
+
+// Global Config for Local Library storage
+const LIBRARY_FILE = "local_library.json";
+const IMAGE_CACHE_DIR = path.resolve(CACHE_DIR, "images");
+
+if (!fs.existsSync(IMAGE_CACHE_DIR)) {
+  fs.mkdirSync(IMAGE_CACHE_DIR, { recursive: true });
+}
+
+// Ensure library file exists
+if (!fs.existsSync(LIBRARY_FILE)) {
+  fs.writeFileSync(LIBRARY_FILE, JSON.stringify([], null, 2));
+}
+
+function getLocalLibrary(): any[] {
+  try {
+    return JSON.parse(fs.readFileSync(LIBRARY_FILE, "utf-8"));
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveLocalLibrary(library: any[]) {
+  fs.writeFileSync(LIBRARY_FILE, JSON.stringify(library, null, 2));
 }
 
 // Scrape Cache Helpers
@@ -99,6 +127,8 @@ async function getScrapedSteamImage(appId: string, platform?: string): Promise<s
     
     // Try to find the header image or fallback to open graph image
     let imgSrc = $('.game_header_image_full').attr('src') || $('meta[property="og:image"]').attr('content');
+    
+    console.log(`DEBUG: Scraped image for AppID ${appId} - URL: ${imgSrc}`);
 
     if (imgSrc) {
       const cleanUrl = imgSrc.split('?')[0]; // Remove query params
@@ -1244,31 +1274,59 @@ app.get("/api/rpcs3/achievements/:gameId", (req, res) => {
 });
 
 // --- IMAGE PROXY (CORS FIX) ---
+// Achievement icon proxy (direct pass-through)
+app.get("/api/proxy-achievement", async (req, res) => {
+  const imageUrl = req.query.url as string;
+  if (!imageUrl) return res.status(400).send("Missing URL");
+
+  console.log(`DEBUG: Achievement icon request: ${imageUrl}`);
+
+  try {
+    const response = await axios.get(imageUrl, {
+      responseType: 'arraybuffer',
+      timeout: 10000
+    });
+    res.set('Content-Type', response.headers['content-type']);
+    res.send(response.data);
+  } catch (error) {
+    console.error(`Proxy error for achievement icon ${imageUrl}:`, (error as Error).message);
+    // Return 1x1 transparent pixel on failure
+    const pixel = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
+    res.set('Content-Type', 'image/gif');
+    res.send(pixel);
+  }
+});
+
 app.get("/api/proxy-image", async (req, res) => {
   let imageUrl = req.query.url as string;
   const appId = req.query.appid as string;
   const platform = req.query.platform as string;
 
-  // Handle AppID scraping
-  if (appId) {
-    const scrapedUrl = await getScrapedSteamImage(appId, platform);
-    if (scrapedUrl) {
-      imageUrl = scrapedUrl;
-    } else {
-      // Fallback: Construct standard URL if scraping fails
-      imageUrl = `https://cdn.akamai.steamstatic.com/steam/apps/${appId}/header.jpg`;
-    }
-  }
+  console.log(`DEBUG: Banner image request: appId=${appId}, platform=${platform}, url=${imageUrl}`);
 
-  if (!imageUrl) return res.status(400).send("Missing URL or AppID");
+  let finalUrl = "";
   
-  // Clean URL: remove debug- prefix if present (CORS/ID fix)
-  imageUrl = imageUrl.replace(/debug-/, '');
-
-  // Security: Only proxy Steam CDN
-  if (!imageUrl.includes("steamstatic.com") && !imageUrl.includes("akamaihd.net") && !imageUrl.includes("steamcdn-a.akamaihd.net")) {
-    return res.status(403).send("Forbidden domain");
+  if (appId) {
+    finalUrl = await getScrapedSteamImage(appId, platform || 'STEAM') || "";
   }
+  
+  if (!finalUrl && imageUrl) {
+      finalUrl = imageUrl.replace(/debug-/, '');
+  }
+  
+  // Fallback: If still no finalUrl, but it's a Steam/Goldberg game, use the header URL directly.
+  if (!finalUrl && appId && (platform === 'STEAM' || platform === 'GOLDBERG')) {
+      finalUrl = `https://cdn.akamai.steamstatic.com/steam/apps/${appId}/header.jpg`;
+  }
+
+  if (!finalUrl) {
+    // Return transparent 1x1 GIF on error
+    const transparentGif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+    res.set('Content-Type', 'image/gif');
+    res.send(transparentGif);
+    return;
+  }
+  imageUrl = finalUrl;
 
   try {
     const response = await axios({
@@ -1280,9 +1338,7 @@ app.get("/api/proxy-image", async (req, res) => {
       },
       timeout: 10000
     });
-    
-    const contentType = (response.headers['content-type'] as string) || 'image/jpeg';
-    res.setHeader('Content-Type', contentType);
+
     res.send(response.data);
   } catch (error) {
     console.warn(`Proxy error for ${imageUrl}:`, (error as Error).message);
