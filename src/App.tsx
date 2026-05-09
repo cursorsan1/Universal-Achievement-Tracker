@@ -178,6 +178,10 @@ function Dashboard() {
   const [isDebugProcessing, setIsDebugProcessing] = useState(false);
   const [isMapping, setIsMapping] = useState(false);
   const [lastSync, setLastSync] = useState<Date | null>(null);
+  const [configStatus, setConfigStatus] = useState<{
+    steam: { configured: boolean },
+    retroachievements: { configured: boolean }
+  } | null>(null);
   const isInitialized = useRef(false);
   const logRef = useRef<{msg: string, type: 'info' | 'error'}[]>([]);
 
@@ -272,86 +276,131 @@ function Dashboard() {
   const [showXboxHelper, setShowXboxHelper] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "success">("idle");
 
-  // Load config on mount
+  // Load config and sync games on mount
   useEffect(() => {
-    fetch("/api/config")
-      .then(res => res.json())
-      .then(data => {
-        setSteamApiKey(data.steamApiKey || "");
-        setSteamId(data.steamId || "");
-        setRaUsername(data.raUsername || "");
-        setRaApiKey(data.raApiKey || "");
-        setXboxXuid(data.xboxXuid || "");
-        setXboxAuthHeader(data.xboxAuthHeader || "");
-        setRpcs3Path(data.rpcs3Path || "");
-        setGoldbergPath(data.goldbergPath || "");
-        setNotificationScale(data.notificationScale !== undefined ? data.notificationScale : 1.0);
-        if (data.sounds) setRaritySounds(data.sounds);
-      });
-  }, []);
+    const loadAndSync = async () => {
+      try {
+        // 1. Get from Electron Store (Persistent)
+        if (window.require) {
+           try {
+             const { ipcRenderer } = window.require('electron');
+             const savedSettings = await ipcRenderer.invoke('get-settings');
+             if (savedSettings && Object.keys(savedSettings).length > 0) {
+                if (savedSettings.steamApiKey) setSteamApiKey(savedSettings.steamApiKey);
+                if (savedSettings.steamId) setSteamId(savedSettings.steamId);
+                if (savedSettings.raUsername) setRaUsername(savedSettings.raUsername);
+                if (savedSettings.raApiKey) setRaApiKey(savedSettings.raApiKey);
+                if (savedSettings.xboxXuid) setXboxXuid(savedSettings.xboxXuid);
+                if (savedSettings.xboxAuthHeader) setXboxAuthHeader(savedSettings.xboxAuthHeader);
+                if (savedSettings.rpcs3Path) setRpcs3Path(savedSettings.rpcs3Path);
+                if (savedSettings.goldbergPath) setGoldbergPath(savedSettings.goldbergPath);
+                if (savedSettings.sounds) setRaritySounds(savedSettings.sounds);
+                if (savedSettings.notificationScale !== undefined) setNotificationScale(savedSettings.notificationScale);
+                if (savedSettings.notificationVolume !== undefined) setNotificationVolume(savedSettings.notificationVolume);
+                if (savedSettings.notificationDuration !== undefined) setNotificationDuration(savedSettings.notificationDuration);
+                if (savedSettings.overlayPosition) setOverlayPosition(savedSettings.overlayPosition);
+             }
+           } catch (e) {
+             console.warn("Electron IPC not available for config loading", e);
+           }
+        }
 
-  useEffect(() => {
-    if (selectedGame) {
-      console.log("🖼️ COVER LOAD ATTEMPT:", { 
-        appId: getCleanId(selectedGame.id), 
-        receivedUrl: selectedGame.cover_url || selectedGame.headerImage 
-      });
-    }
-  }, [selectedGame]);
+        // 2. Fallback/Sync with server config
+        const response = await fetch("/api/config");
+        if (response.ok) {
+          const data = await response.json();
+          setSteamApiKey(prev => prev || data.steamApiKey || "");
+          setSteamId(prev => prev || data.steamId || "");
+          setRaUsername(prev => prev || data.raUsername || "");
+          setRaApiKey(prev => prev || data.raApiKey || "");
+          setXboxXuid(prev => prev || data.xboxXuid || "");
+          setXboxAuthHeader(prev => prev || data.xboxAuthHeader || "");
+          setRpcs3Path(prev => prev || data.rpcs3Path || "");
+          setGoldbergPath(prev => prev || data.goldbergPath || "");
+          if (data.sounds) setRaritySounds(prev => ({...prev, ...data.sounds}));
+          if (data.notificationScale !== undefined && !window.require) setNotificationScale(data.notificationScale);
+        }
+        
+        const statusRes = await fetch("/api/sync-status");
+        if (statusRes.ok) {
+          const statusData = await statusRes.json();
+          setConfigStatus(statusData);
+        }
 
-  useEffect(() => {
-    if (!isInitialized.current) {
-      isInitialized.current = true;
-      syncGames();
-    }
+        // 3. Sync Games
+        if (!isInitialized.current) {
+          isInitialized.current = true;
+          syncGames();
+        }
+      } catch (error) {
+        console.error("Failed to load config and sync:", error);
+      }
+    };
+    
+    loadAndSync();
   }, []);
 
   const syncGames = async (force: boolean = false) => {
     if (isSyncing) return;
     setIsSyncing(true);
     try {
-      // 1. Fetch Steam
-      const steamResponse = await fetch(`/api/steam/games${force ? "?refresh=true" : ""}`);
-      const steamData = await steamResponse.json();
-      const steamGames = Array.isArray(steamData) ? steamData : (steamData.games || []);
-      if (steamData.notifications) processIncomingNotifications(steamData.notifications);
+      // 0. Check Config Status
+      const statusRes = await fetch("/api/sync-status");
+      const statusData = await statusRes.json();
+      setConfigStatus(statusData);
 
-      const steamGamesConverted: Game[] = steamGames.map((g: any) => ({
-        id: `steam-${g.appid}`,
-        appid: g.appid,
-        title: g.name,
-        platform: "Steam",
-        completion: g.completion_rate,
-        playtime: `${g.playtime_hours} óra`,
-        icon: g.icon_url,
-        headerImage: g.header_image,
-        cover_url: g.cover_url,
-        color: g.completion_rate === 100 ? "from-yellow-400/20 to-yellow-600/0" : "from-indigo-500/10 to-transparent",
-        platformColor: "text-slate-200 bg-slate-700/50",
-        unlockedCount: g.unlocked_achievements,
-        totalCount: g.total_achievements
-      }));
+      // 1. Fetch Steam
+      let steamGamesConverted: Game[] = [];
+      try {
+        const steamResponse = await fetch(`/api/steam/games${force ? "?refresh=true" : ""}`);
+        if (steamResponse.ok) {
+          const steamData = await steamResponse.json();
+          const steamGames = Array.isArray(steamData) ? steamData : (steamData.games || []);
+          if (steamData.notifications) processIncomingNotifications(steamData.notifications);
+
+          steamGamesConverted = steamGames.map((g: any) => ({
+            id: `steam-${g.appid}`,
+            appid: g.appid,
+            title: g.name,
+            platform: "Steam",
+            completion: g.completion_rate,
+            playtime: `${g.playtime_hours} óra`,
+            icon: g.icon_url,
+            headerImage: g.header_image,
+            cover_url: g.cover_url,
+            color: g.completion_rate === 100 ? "from-yellow-400/20 to-yellow-600/0" : "from-indigo-500/10 to-transparent",
+            platformColor: "text-slate-200 bg-slate-700/50",
+            unlockedCount: g.unlocked_achievements,
+            totalCount: g.total_achievements
+          }));
+        }
+      } catch (e) { console.warn("Steam sync failed:", e); }
 
       // 2. Fetch RetroAchievements
-      const raResponse = await fetch(`/api/ra/games${force ? "?refresh=true" : ""}`);
-      const raData = await raResponse.json();
-      const raGames = Array.isArray(raData) ? raData : (raData.games || []);
-      if (raData.notifications) processIncomingNotifications(raData.notifications);
+      let raGamesConverted: Game[] = [];
+      try {
+        const raResponse = await fetch(`/api/ra/games${force ? "?refresh=true" : ""}`);
+        if (raResponse.ok) {
+          const raData = await raResponse.json();
+          const raGames = Array.isArray(raData) ? raData : (raData.games || []);
+          if (raData.notifications) processIncomingNotifications(raData.notifications);
 
-      const raGamesConverted: Game[] = raGames.map((g: any) => ({
-        id: `ra-${g.id}`,
-        appid: g.id,
-        title: g.name,
-        platform: "RetroAchievements",
-        completion: g.completion_rate, 
-        playtime: g.last_played ? `Utoljára: ${new Date(g.last_played).toLocaleDateString()}` : "Nincs adat",
-        icon: g.icon_url,
-        color: g.completion_rate === 100 ? "from-yellow-400/20 to-yellow-600/0" : "from-orange-500/10 to-transparent",
-        platformColor: "text-orange-400 bg-orange-400/10",
-        unlockedCount: g.unlocked_achievements,
-        totalCount: g.total_achievements,
-        consoleName: g.console_name
-      }));
+          raGamesConverted = raGames.map((g: any) => ({
+            id: `ra-${g.id}`,
+            appid: g.id,
+            title: g.name,
+            platform: "RetroAchievements",
+            completion: g.completion_rate, 
+            playtime: g.last_played ? `Utoljára: ${new Date(g.last_played).toLocaleDateString()}` : "Nincs adat",
+            icon: g.icon_url,
+            color: g.completion_rate === 100 ? "from-yellow-400/20 to-yellow-600/0" : "from-orange-500/10 to-transparent",
+            platformColor: "text-orange-400 bg-orange-400/10",
+            unlockedCount: g.unlocked_achievements,
+            totalCount: g.total_achievements,
+            consoleName: g.console_name
+          }));
+        }
+      } catch (e) { console.warn("RA sync failed:", e); }
 
       // 3. Fetch Xbox
       const xboxResponse = await fetch(`/api/xbox/games${force ? "?refresh=true" : ""}`);
@@ -522,6 +571,14 @@ function Dashboard() {
       }
       
       const response = await fetch(endpoint);
+      if (response.status === 403) {
+        const errData = await response.json();
+        alert(`Hiba: ${errData.error || "Nincs jogosultság."} Kérlek ellenőrizd az API kulcsaidat és a profilbeállításaidat!`);
+        setActiveTab("settings");
+        setSelectedGame(null);
+        return;
+      }
+      
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`Szerver hiba (${response.status}): ${errorText.substring(0, 100)}`);
@@ -566,24 +623,48 @@ function Dashboard() {
 
   const handleSaveConfig = async () => {
     setSaveStatus("saving");
+    const configData = { 
+      steamApiKey, 
+      steamId, 
+      raUsername, 
+      raApiKey, 
+      xboxXuid, 
+      xboxAuthHeader, 
+      rpcs3Path,
+      goldbergPath,
+      sounds: raritySounds,
+      notificationScale,
+      notificationVolume,
+      notificationDuration,
+      overlayPosition
+    };
+
     try {
-      await fetch("/api/config", {
+      // 1. Save to Electron Store (Persistent)
+      if (window.require) {
+        try {
+          const { ipcRenderer } = window.require('electron');
+          ipcRenderer.send('save-settings', configData);
+        } catch (e) {
+          console.warn("Electron IPC not available for config saving", e);
+        }
+      }
+
+      // 2. Save to Server Backend
+      await fetch("/api/update-config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          steamApiKey, 
-          steamId, 
-          raUsername, 
-          raApiKey, 
-          xboxXuid, 
-          xboxAuthHeader, 
-          rpcs3Path,
-          goldbergPath,
-          sounds: raritySounds,
-          notificationScale
-        })
+        body: JSON.stringify(configData)
       });
+      
       setSaveStatus("success");
+      
+      const statusRes = await fetch("/api/sync-status");
+      if (statusRes.ok) {
+        const statusData = await statusRes.json();
+        setConfigStatus(statusData);
+      }
+
       setTimeout(() => setSaveStatus("idle"), 2000);
       syncGames(true); // Re-fetch after save
     } catch (error) {
@@ -1376,10 +1457,27 @@ function Dashboard() {
                   <div className="inline-flex p-4 rounded-full bg-slate-900 border border-slate-800 mb-2">
                     <Gamepad2 className="w-8 h-8 text-slate-600" />
                   </div>
-                  <h3 className="text-xl font-medium text-slate-400">A könyvtárad jelenleg üres</h3>
-                  <p className="text-slate-600 text-sm max-w-sm mx-auto">
-                    Kérlek használd a jobb felső sarokban lévő szinkronizálás gombot, vagy állítsd be a Steam és RetroAchievements azonosítóidat a Beállítások menüben.
-                  </p>
+                  {configStatus && (!configStatus.steam.configured && !configStatus.retroachievements.configured) ? (
+                    <>
+                      <h3 className="text-xl font-medium text-indigo-400">Első lépések szükségesek</h3>
+                      <p className="text-slate-500 text-sm max-w-sm mx-auto">
+                        A folytatáshoz kérlek add meg az API kulcsaidat a beállítások menüben.
+                      </p>
+                      <button 
+                        onClick={() => setActiveTab("settings")}
+                        className="px-6 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-full text-sm font-bold transition-all shadow-lg shadow-indigo-500/20"
+                      >
+                        Beállítások Megnyitása
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <h3 className="text-xl font-medium text-slate-400">A könyvtárad jelenleg üres</h3>
+                      <p className="text-slate-600 text-sm max-w-sm mx-auto">
+                        Kérlek használd a jobb felső sarokban lévő szinkronizálás gombot, vagy állítsd be a Steam és RetroAchievements azonosítóidat a Beállítások menüben.
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
             </div>

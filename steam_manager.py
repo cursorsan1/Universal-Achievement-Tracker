@@ -78,6 +78,11 @@ class SteamManager:
         
         try:
             response = requests.get(url, params=params)
+            if response.status_code == 401 or response.status_code == 403:
+                print("Hiba: Érvénytelen Steam API kulcs vagy hozzáférés megtagadva.")
+                return []
+            
+            response.raise_for_status()
             data = response.json()
             
             games = []

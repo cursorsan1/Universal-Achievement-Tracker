@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, screen } from 'electron';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn, ChildProcess } from 'child_process';
+import * as fs from 'fs';
 
 // ESM fix a __dirname helyettesítésére
 const __filename = fileURLToPath(import.meta.url);
@@ -9,6 +10,36 @@ const __dirname = path.dirname(__filename);
 
 let mainWindow: BrowserWindow | null = null;
 let pythonProcess: ChildProcess | null = null;
+const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+console.log(`[Electron] Settings path: ${settingsPath}`);
+
+// Ensure directory exists
+const settingsDir = path.dirname(settingsPath);
+if (!fs.existsSync(settingsDir)) {
+  fs.mkdirSync(settingsDir, { recursive: true });
+}
+
+// Settings IPC Handlers
+ipcMain.handle('get-settings', async () => {
+  try {
+    if (fs.existsSync(settingsPath)) {
+      const data = fs.readFileSync(settingsPath, 'utf8');
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.error('Failed to load settings:', err);
+  }
+  return {};
+});
+
+ipcMain.on('save-settings', (event, settings) => {
+  try {
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+    console.log('[Electron] Settings saved successfully.');
+  } catch (err) {
+    console.error('Failed to save settings:', err);
+  }
+});
 
 // Notification listener
 ipcMain.on('show-notification', (event, arg) => {

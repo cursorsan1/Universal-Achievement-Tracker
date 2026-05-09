@@ -265,6 +265,44 @@ app.get("/api/config", (req, res) => {
   res.json(getConfig());
 });
 
+// API route to update config
+app.post("/api/update-config", (req, res) => {
+  try {
+    const newConfig = req.body;
+    const currentConfig = getConfig();
+    const updatedConfig = { ...currentConfig, ...newConfig };
+    
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(updatedConfig, null, 2));
+    
+    // Also update process.env for the current session if keys are provided
+    if (newConfig.steamApiKey) process.env.STEAM_API_KEY = newConfig.steamApiKey;
+    if (newConfig.steamId) process.env.STEAM_ID = newConfig.steamId;
+    if (newConfig.raUsername) process.env.RA_USERNAME = newConfig.raUsername;
+    if (newConfig.raApiKey) process.env.RA_API_KEY = newConfig.raApiKey;
+
+    res.json({ status: "ok", config: updatedConfig });
+  } catch (error) {
+    console.error("Failed to update config:", error);
+    res.status(500).json({ error: "Failed to update config" });
+  }
+});
+
+// API route to test connection and sync status
+app.get("/api/sync-status", (req, res) => {
+  const config = getConfig();
+  const status = {
+    steam: {
+      configured: !!config.steamApiKey && config.steamApiKey !== "YOUR_STEAM_WEB_API_KEY",
+      valid: false
+    },
+    retroachievements: {
+      configured: !!config.raUsername && !!config.raApiKey,
+      valid: false
+    }
+  };
+  res.json(status);
+});
+
 // API route to get Steam achievements for a game
 app.get("/api/steam/achievements/:appid", async (req, res) => {
   const { appid } = req.params;
@@ -273,8 +311,8 @@ app.get("/api/steam/achievements/:appid", async (req, res) => {
   const steamId = config.steamId;
   const achCacheFile = path.join(CACHE_DIR, `achievements_steam_${steamId}_${appid}.json`);
 
-  if (!apiKey || !steamId) {
-    return res.json([]);
+  if (!apiKey || !steamId || apiKey === "YOUR_STEAM_WEB_API_KEY") {
+    return res.status(403).json({ error: "Steam API key not configured", code: "AUTH_REQUIRED" });
   }
 
   if (fs.existsSync(achCacheFile)) {
@@ -286,6 +324,11 @@ app.get("/api/steam/achievements/:appid", async (req, res) => {
     const schemaResponse = await fetch(
       `http://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/?key=${apiKey}&appid=${appid}&l=hungarian`
     );
+    
+    if (schemaResponse.status === 401 || schemaResponse.status === 403) {
+      return res.status(403).json({ error: "Invalid Steam API key", code: "AUTH_INVALID" });
+    }
+
     const schemaData = await schemaResponse.json();
     const availableAchievements = schemaData.game?.availableGameStats?.achievements || [];
 
@@ -294,6 +337,15 @@ app.get("/api/steam/achievements/:appid", async (req, res) => {
       `http://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v0001/?key=${apiKey}&steamid=${steamId}&appid=${appid}`
     );
     const progressData = await progressResponse.json();
+
+    if (progressData.playerstats?.error === "Requested app has no stats") {
+        return res.json([]);
+    }
+    
+    if (progressData.playerstats?.success === false) {
+        return res.status(403).json({ error: "Failed to fetch player stats. Profile might be private.", code: "AUTH_PRIVATE" });
+    }
+
     const userAchievements = progressData.playerstats?.achievements || [];
 
     // 3. Merge
@@ -1286,7 +1338,7 @@ app.get("/api/proxy-achievement", async (req, res) => {
       responseType: 'arraybuffer',
       timeout: 10000
     });
-    res.set('Content-Type', response.headers['content-type']);
+    res.set('Content-Type', response.headers['content-type'] as string);
     res.send(response.data);
   } catch (error) {
     console.error(`Proxy error for achievement icon ${imageUrl}:`, (error as Error).message);
