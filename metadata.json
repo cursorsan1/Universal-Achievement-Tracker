@@ -1,0 +1,6 @@
+{
+  "name": "Universal Achievement Hub",
+  "description": "Cross-platform achievement manager unifying Steam, Xbox, RPCS3, and RetroAchievements into a single clean UI.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
