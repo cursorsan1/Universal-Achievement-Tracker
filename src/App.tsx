@@ -352,7 +352,7 @@ function Dashboard() {
     }
   };
 
-  const getSteamHeaderUrl = useCallback((appId: string | number, apiCoverUrl?: string, useProxy = true) => {
+  const getSteamHeaderUrl = useCallback((appId: string | number, apiCoverUrl?: string, useProxy = true, platform?: string) => {
     let finalUrl = "";
     const cleanAppId = getCleanId(appId);
     
@@ -363,7 +363,7 @@ function Dashboard() {
     }
     
     if (!useProxy) return finalUrl;
-    return `/api/proxy-image?url=${encodeURIComponent(finalUrl)}&appid=${cleanAppId}`;
+    return `/api/proxy-image?url=${encodeURIComponent(finalUrl)}&appid=${cleanAppId}${platform ? `&platform=${platform}` : ''}`;
   }, []);
 
   const getImageSource = useCallback((game: Game | null, type: 'icon' | 'header' | 'achievement', data?: any) => {
@@ -387,16 +387,11 @@ function Dashboard() {
         // Direct pass for RA header (typically icon)
         return game.icon || "";
       }
-      if (platform === 'STEAM') {
-        const rawUrl = game.cover_url || game.headerImage;
-        // In detailed view (header type), we use proxy
-        return rawUrl ? `/api/proxy-image?url=${encodeURIComponent(rawUrl)}` : getSteamHeaderUrl(game.id, undefined, true);
+      if (platform === 'STEAM' || platform === 'GOLDBERG') {
+        // Use proxy for Steam and Goldberg for banner images
+        return `/api/proxy-image?appid=${encodeURIComponent(getCleanId(game.id))}&platform=${platform}`;
       }
-      if (platform === 'GOLDBERG') {
-        // In detailed view (header type), we use proxy. 
-        // For Goldberg, we ALWAYS use the clean ID constructed URL as requested.
-        return getSteamHeaderUrl(game.id, undefined, true);
-      }
+      // For all other platforms, return original icon/image URL directly
       return game.icon || "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=300&h=450&fit=crop&q=40";
     }
 
@@ -409,7 +404,7 @@ function Dashboard() {
       const libUrl = (platform === 'GOLDBERG' ? undefined : game.cover_url) || `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${cleanId}/library_600x900.jpg`;
       
       // Use proxy even for library view to avoid CORS issues as requested
-      return `/api/proxy-image?url=${encodeURIComponent(libUrl)}&appid=${cleanId}`;
+      return `/api/proxy-image?url=${encodeURIComponent(libUrl)}&appid=${cleanId}&platform=${platform}`;
     }
     
     return game.icon || "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=300&h=450&fit=crop&q=40";

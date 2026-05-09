@@ -77,9 +77,13 @@ function saveScrapedCache(cache: Record<string, string>) {
   fs.writeFileSync(SCRAPE_CACHE_FILE, JSON.stringify(cache, null, 2));
 }
 
-async function getScrapedSteamImage(appId: string): Promise<string | null> {
+async function getScrapedSteamImage(appId: string, platform?: string): Promise<string | null> {
   const cache = getScrapedCache();
   if (cache[appId]) return cache[appId];
+  
+  // Only scrape for Steam/Goldberg
+  const p = (platform || "").toUpperCase();
+  if (p !== "STEAM" && p !== "GOLDBERG") return null;
 
   try {
     const url = `https://store.steampowered.com/app/${appId}`;
@@ -92,13 +96,22 @@ async function getScrapedSteamImage(appId: string): Promise<string | null> {
     });
 
     const $ = cheerio.load(response.data);
-    const imgSrc = $('.game_header_image_full').attr('src');
+    
+    // Try to find the header image or fallback to open graph image
+    let imgSrc = $('.game_header_image_full').attr('src') || $('meta[property="og:image"]').attr('content');
 
     if (imgSrc) {
       const cleanUrl = imgSrc.split('?')[0]; // Remove query params
-      cache[appId] = cleanUrl;
-      saveScrapedCache(cache);
-      return cleanUrl;
+      
+      // Verify URL is valid
+      try {
+        await axios.head(cleanUrl, { timeout: 5000 });
+        cache[appId] = cleanUrl;
+        saveScrapedCache(cache);
+        return cleanUrl;
+      } catch (headError) {
+        console.warn(`Scraped URL invalid for ${appId}: ${cleanUrl}`);
+      }
     }
   } catch (error) {
     console.warn(`Scraping failed for AppID ${appId}:`, (error as Error).message);
@@ -769,7 +782,7 @@ async function getSteamGameMetadata(appId: string, apiKey: string, localGamePath
 
     // Advanced Scraper Fallback for Header Image
     if (!metadata.header_image) {
-      const scraped = await getScrapedSteamImage(appId);
+      const scraped = await getScrapedSteamImage(appId, "STEAM");
       metadata.header_image = scraped || `https://cdn.akamai.steamstatic.com/steam/apps/${appId}/header.jpg`;
     }
     console.log(`[STEAM METADATA] Header Image URL for ${appId}:`, metadata.header_image);
@@ -1234,10 +1247,11 @@ app.get("/api/rpcs3/achievements/:gameId", (req, res) => {
 app.get("/api/proxy-image", async (req, res) => {
   let imageUrl = req.query.url as string;
   const appId = req.query.appid as string;
+  const platform = req.query.platform as string;
 
   // Handle AppID scraping
   if (appId) {
-    const scrapedUrl = await getScrapedSteamImage(appId);
+    const scrapedUrl = await getScrapedSteamImage(appId, platform);
     if (scrapedUrl) {
       imageUrl = scrapedUrl;
     } else {
@@ -1272,6 +1286,17 @@ app.get("/api/proxy-image", async (req, res) => {
     res.send(response.data);
   } catch (error) {
     console.warn(`Proxy error for ${imageUrl}:`, (error as Error).message);
+    
+    // Clear cache if appId was provided, as the URL it got might be stale/bad
+    if (appId) {
+        const cache = getScrapedCache();
+        if (cache[appId]) {
+            delete cache[appId];
+            saveScrapedCache(cache);
+            console.info(`Cleared stale scrape cache for appId: ${appId}`);
+        }
+    }
+
     // Return transparent 1x1 GIF on error
     const transparentGif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
     res.setHeader('Content-Type', 'image/gif');
