@@ -21,6 +21,93 @@ import {
   Zap
 } from "lucide-react";
 import { useState, useEffect, useMemo, useCallback, useRef, ChangeEvent } from "react";
+import { Routes, Route, useSearchParams } from "react-router-dom";
+
+// IPC helper
+const sendNotification = (title: string, text: string, image?: string, rarity?: string, gameTitle?: string) => {
+    if (window.require) {
+        try {
+            const { ipcRenderer } = window.require('electron');
+            ipcRenderer.send('show-notification', { title, text, image, rarity, gameTitle });
+        } catch (e) {
+            console.error('Electron IPC not available', e);
+        }
+    }
+}
+
+const NotificationPopup = () => {
+    const [params] = useSearchParams();
+    const title = params.get('title') || 'Achievement';
+    const text = params.get('text') || '';
+    const image = params.get('image') || '';
+    const rarity = params.get('rarity') || 'common';
+    const gameTitle = params.get('gameTitle') || '';
+  
+    useEffect(() => {
+      // Play sound based on rarity
+      const soundUrls = {
+        common: "https://assets.mixkit.co/active_storage/sfx/2012/2012-preview.mp3",
+        rare: "https://assets.mixkit.co/active_storage/sfx/2013/2013-preview.mp3",
+        ultrarare: "https://assets.mixkit.co/active_storage/sfx/2014/2014-preview.mp3",
+        platinum: "https://assets.mixkit.co/active_storage/sfx/2015/2015-preview.mp3"
+      };
+      const audio = new Audio((soundUrls as any)[rarity] || soundUrls.common);
+      audio.volume = 0.8;
+      audio.play().catch(() => {});
+    }, [rarity]);
+  
+    return (
+      <div className="w-full h-full p-2 overflow-hidden bg-transparent">
+        <motion.div 
+          initial={{ x: 400, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          exit={{ x: 400, opacity: 0 }}
+          transition={{ type: "spring", damping: 20, stiffness: 100 }}
+          className={`
+            bg-slate-900/95 border-2 border-slate-700/50 p-4 rounded-xl shadow-2xl text-white 
+            flex items-center gap-4 w-full h-[120px] backdrop-blur-md relative overflow-hidden
+          `}
+        >
+          {/* Accent glow based on rarity */}
+          <div className={`absolute top-0 left-0 w-1 h-full ${
+            rarity === 'rare' ? 'bg-blue-500' : 
+            rarity === 'ultrarare' ? 'bg-amber-500' : 
+            rarity === 'platinum' ? 'bg-cyan-400' : 'bg-slate-500'
+          }`} />
+          
+          <div className="relative shrink-0">
+            <div className="absolute -inset-2 bg-gradient-to-tr from-indigo-500 to-purple-500 rounded-full blur opacity-20" />
+            <img 
+              src={image || "https://images.unsplash.com/photo-1612287230202-1ff1d85d1bdf?w=64&h=64&fit=crop"} 
+              alt=""
+              className="w-16 h-16 rounded-lg object-cover border border-slate-600 relative z-10"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1612287230202-1ff1d85d1bdf?w=64&h=64&fit=crop";
+              }}
+            />
+          </div>
+          
+          <div className="flex flex-col flex-1 min-w-0">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">
+              {gameTitle || 'Universal Hub'} • {rarity.toUpperCase()}
+            </span>
+            <h1 className="font-bold text-lg leading-tight truncate text-indigo-100">{title}</h1>
+            <p className="text-sm text-slate-300 truncate mt-0.5">{text}</p>
+          </div>
+          
+          <div className="ml-2">
+            <Trophy className={`w-8 h-8 ${
+              rarity === 'rare' ? 'text-blue-400' : 
+              rarity === 'ultrarare' ? 'text-amber-400' : 
+              rarity === 'platinum' ? 'text-cyan-300' : 'text-slate-400'
+            }`} />
+          </div>
+        </motion.div>
+      </div>
+    );
+};
+
+// ... Interfaces ...
 
 interface Game {
   id: string;
@@ -39,6 +126,8 @@ interface Game {
   headerImage?: string;
   cover_url?: string;
 }
+
+// ... Rest of the components ...
 
 interface Achievement {
   api_id: string;
@@ -154,18 +243,14 @@ function Dashboard() {
     
     notifs.forEach((notif, index) => {
       setTimeout(() => {
-        const id = Date.now() + index;
-        setNotifications(prev => [...prev, { ...notif, id }]);
-
-        // Sound handle (Rarity based)
-        const soundUrl = getAudioUrl(notif.rarity || "common");
-        const audio = new Audio(soundUrl);
-        audio.volume = notificationVolume / 100;
-        audio.play().catch(() => {});
-
-        setTimeout(() => {
-          setNotifications(prev => prev.filter(n => n.id !== id));
-        }, notificationDuration * 1000);
+        // Only use Electron IPC for notifications
+        sendNotification(
+          notif.title, 
+          notif.description || notif.text, 
+          notif.gameIcon || notif.icon_url, 
+          notif.rarity || 'common', 
+          notif.gameTitle
+        );
       }, index * 1000); // Stagger notifications
     });
   };
@@ -508,7 +593,6 @@ function Dashboard() {
   }, []);
 
   const triggerTestNotification = (rarity: string = "common") => {
-    const id = Date.now();
     const rarities = {
       common: { title: "New Achievement", desc: "You've made progress!", color: "white" },
       rare: { title: "Rare Achievement", desc: "Impressive skills!", color: "blue" },
@@ -518,26 +602,11 @@ function Dashboard() {
     
     const configData = (rarities as any)[rarity];
 
-    const newNotification = {
-      id,
-      title: configData.title,
-      description: configData.desc,
-      rarity: rarity,
-      gameIcon: selectedGame?.icon || "https://images.unsplash.com/photo-1612287230202-1ff1d85d1bdf?w=100&h=100&fit=crop",
-      gameTitle: selectedGame?.title || "Universal Hub"
-    };
+    const icon = selectedGame?.icon || "https://images.unsplash.com/photo-1612287230202-1ff1d85d1bdf?w=100&h=100&fit=crop";
+    const gameTitle = selectedGame?.title || "Universal Hub";
 
-    setNotifications(prev => [...prev, newNotification]);
-    
-    // Test Sound
-    const soundUrl = getAudioUrl(rarity);
-    const audio = new Audio(soundUrl);
-    audio.volume = notificationVolume / 100;
-    audio.play().catch(() => {});
-
-    setTimeout(() => {
-      setNotifications(prev => prev.filter(n => n.id !== id));
-    }, notificationDuration * 1000);
+    // IPC Trigger
+    sendNotification(configData.title, configData.desc, icon, rarity, gameTitle);
   };
 
   const handleSoundUpload = (rarity: string, e: ChangeEvent<HTMLInputElement>) => {
@@ -1567,65 +1636,7 @@ function Dashboard() {
         )}
       </AnimatePresence>
 
-      {/* NOTIFICATION OVERLAY CONTAINER (Click-through) */}
-      <div className={`fixed inset-0 z-[999] pointer-events-none flex p-8 ${
-        overlayPosition.startsWith('top') ? 'items-start' : 
-        overlayPosition.startsWith('middle') ? 'items-center' : 'items-end'
-      } ${
-        overlayPosition.endsWith('left') ? 'justify-start' : 
-        overlayPosition.endsWith('center') ? 'justify-center' : 'justify-end'
-      }`}>
-        <div 
-          className="space-y-4 flex flex-col items-center transition-all duration-300"
-          style={{ 
-            transform: `scale(${notificationScale})`,
-            transformOrigin: overlayPosition.split('-').reverse().join(' ')
-          }}
-        >
-          <AnimatePresence>
-            {notifications.map((notif) => (
-              <motion.div
-                key={notif.id}
-                initial={{ opacity: 0, scale: 0.8, y: overlayPosition.startsWith('top') ? -50 : 50 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.9, x: 100 }}
-                className={`
-                  pointer-events-auto relative glass-panel rounded-full px-6 py-4 flex items-center gap-4 min-w-[320px] max-w-[400px] overflow-hidden
-                  rarity-glow-${notif.rarity}
-                  ${notif.rarity === 'platinum' ? 'diamond-shimmer' : ''}
-                `}
-              >
-                {/* Iridescent sweep for Platinum */}
-                {notif.rarity === 'platinum' && (
-                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -skew-x-12 translate-x-[-100%] animate-[shimmer_2s_infinite]" />
-                )}
-
-                <div className="relative shrink-0">
-                  <img 
-                    src={notif.gameIcon} 
-                    alt="" 
-                    referrerPolicy="no-referrer"
-                    className="w-12 h-12 rounded-lg object-cover ring-1 ring-white/20 shadow-lg"
-                  />
-                  <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center border-2 border-slate-900 shadow-lg ${
-                    notif.rarity === 'platinum' ? 'bg-cyan-400' : 
-                    notif.rarity === 'ultrarare' ? 'bg-yellow-400' : 
-                    notif.rarity === 'rare' ? 'bg-blue-500' : 'bg-white'
-                  }`}>
-                    <Trophy className="w-2.5 h-2.5 text-slate-900" />
-                  </div>
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40 mb-1 leading-none">{notif.gameTitle}</p>
-                  <h4 className="text-sm font-bold text-white truncate leading-tight">{notif.title}</h4>
-                  <p className="text-xs text-white/60 truncate">{notif.description}</p>
-                </div>
-              </motion.div>
-            ))}
-          </AnimatePresence>
-        </div>
-      </div>
+      {/* NOTIFICATION OVERLAY CONTAINER REMOVED - NOW NATIVE ELECTRON */}
     </div>
   );
 }
@@ -1716,25 +1727,11 @@ function DesktopOverlay() {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState("dashboard");
-  const [isOverlayRoute, setIsOverlayRoute] = useState(window.location.pathname === '/overlay');
-
-  useEffect(() => {
-    const handleLocationChange = () => {
-      setIsOverlayRoute(window.location.pathname === '/overlay');
-    };
-    window.addEventListener('popstate', handleLocationChange);
-    return () => window.removeEventListener('popstate', handleLocationChange);
-  }, []);
-
-  if (isOverlayRoute) {
-    return (
-      <div className="bg-transparent min-h-screen">
-        <DesktopOverlay />
-      </div>
-    );
-  }
-
-  return <Dashboard />;
+  return (
+    <Routes>
+      <Route path="/notification" element={<NotificationPopup />} />
+      <Route path="/*" element={<Dashboard />} />
+    </Routes>
+  );
 }
 

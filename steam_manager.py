@@ -72,9 +72,12 @@ class SteamManager:
             "include_played_free_games": True
         }
         
+        if self.api_key == "YOUR_STEAM_WEB_API_KEY" or not self.api_key:
+            print("Kérlek add meg a Steam API kulcsodat a configban!")
+            return []
+        
         try:
             response = requests.get(url, params=params)
-            response.raise_for_status()
             data = response.json()
             
             games = []
@@ -104,9 +107,12 @@ class SteamManager:
             "l": "hungarian" # Magyar nyelvű leírások
         }
         
+        if self.api_key == "YOUR_STEAM_WEB_API_KEY" or not self.api_key:
+            print("Kérlek add meg a Steam API kulcsodat a configban!")
+            return []
+        
         try:
             response = requests.get(url, params=params)
-            # Ha a játéknak nincs achievementje, a Steam 400-at dobhat
             if response.status_code == 400:
                 return []
             
