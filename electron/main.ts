@@ -12,7 +12,9 @@ const __dirname = path.dirname(__filename);
 let mainWindow: BrowserWindow | null = null;
 let pythonProcess: ChildProcess | null = null;
 const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+const cachePath = path.join(app.getPath('userData'), 'steam_cache.json');
 console.log(`[Electron] Settings path: ${settingsPath}`);
+console.log(`[Electron] Cache path: ${cachePath}`);
 
 // Ensure directory exists
 const settingsDir = path.dirname(settingsPath);
@@ -31,6 +33,33 @@ ipcMain.handle('get-settings', async () => {
     console.error('Failed to load settings:', err);
   }
   return {};
+});
+
+ipcMain.handle('get-cached-steam-data', async () => {
+  try {
+    if (fs.existsSync(cachePath)) {
+      const data = fs.readFileSync(cachePath, 'utf8');
+      const parsed = JSON.parse(data);
+      console.log(`[Electron] Explicit cache request: providing ${parsed.length} games.`);
+      return parsed;
+    }
+  } catch (err) {
+    console.error('[Electron] Failed to load cached steam data:', err);
+  }
+  return [];
+});
+
+ipcMain.on('request-steam-cache', async (event) => {
+  try {
+    if (fs.existsSync(cachePath)) {
+      const data = fs.readFileSync(cachePath, 'utf8');
+      const parsed = JSON.parse(data);
+      console.log(`[Electron] request-steam-cache received: pushing ${parsed.length} games to UI.`);
+      event.reply('steam-data-updated', parsed);
+    }
+  } catch (err) {
+    console.error('[Electron] Failed to respond to request-steam-cache:', err);
+  }
 });
 
 ipcMain.handle('save-settings', async (event, settings) => {
@@ -131,11 +160,14 @@ function startPythonServer() {
   
   // Platformfüggő parancs (Windows: python, minden más: python3)
   const pythonCommand = process.platform === 'win32' ? 'python' : 'python3';
+  const userDataPath = app.getPath('userData');
 
   console.log(`[Electron] Indítás: ${pythonCommand} ${serverPath} ${settingsPath}`);
+  console.log(`[Electron] UserData path passed to Python: ${userDataPath}`);
 
   pythonProcess = spawn(pythonCommand, [serverPath, settingsPath], {
-    stdio: 'inherit'
+    stdio: 'inherit',
+    env: { ...process.env, USER_DATA_PATH: userDataPath }
   });
 
   pythonProcess.on('error', (err) => {
@@ -163,6 +195,28 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
+
+  // Handle data hydration after window is ready
+  mainWindow.webContents.once('did-finish-load', () => {
+    if (fs.existsSync(cachePath)) {
+      try {
+        const data = fs.readFileSync(cachePath, 'utf8');
+        const parsed = JSON.parse(data);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          console.log(`[Electron] Cold start: found cache, pushing ${parsed.length} games to UI after delay.`);
+          // Delaying push to ensure React is ready
+          setTimeout(() => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('steam-data-updated', parsed);
+              console.log('[Electron] Push completed.');
+            }
+          }, 1500);
+        }
+      } catch (err) {
+        console.error('[Electron] Failed to hydrate with cached data:', err);
+      }
+    }
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;

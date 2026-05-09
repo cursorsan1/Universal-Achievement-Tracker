@@ -12,10 +12,21 @@ CORS(app)
 
 # Global configuration state
 SETTINGS_FILE = sys.argv[1] if len(sys.argv) > 1 else 'settings.json'
+# Use USER_DATA_PATH from Electron if available, otherwise fallback to settings dir or current dir
+USER_DATA_PATH = os.getenv('USER_DATA_PATH')
+if USER_DATA_PATH:
+    CACHE_DIR = USER_DATA_PATH
+    print(f"[Python] Using USER_DATA_PATH for cache: {CACHE_DIR}")
+else:
+    CACHE_DIR = os.path.dirname(os.path.abspath(SETTINGS_FILE))
+    print(f"[Python] Falling back to settings directory for cache: {CACHE_DIR}")
+
+CACHE_FILE_PATH = os.path.join(CACHE_DIR, "steam_cache.json")
+
 config = {
     "steamApiKey": os.getenv("STEAM_API_KEY", "YOUR_STEAM_WEB_API_KEY"),
     "steamId": os.getenv("STEAM_ID", "YOUR_STEAM_ID_64"),
-    "cache_file": "steam_cache.json"
+    "cache_file": CACHE_FILE_PATH
 }
 
 def reload_config():
@@ -205,23 +216,69 @@ class SteamManager:
             return []
 
     def sync_all(self, use_cache: bool = True) -> List[Dict]:
-        """Teljes szinkronizáció."""
-        if use_cache and os.path.exists(self.cache_file):
-            with open(self.cache_file, "r", encoding="utf-8") as f:
-                return json.load(f)
+        """Teljes szinkronizáció okos összefésüléssel."""
+        existing_cache = []
+        if os.path.exists(self.cache_file):
+            try:
+                with open(self.cache_file, "r", encoding="utf-8") as f:
+                    existing_cache = json.load(f)
+                    if use_cache:
+                        print(f"[Python] Using {len(existing_cache)} cached games.")
+                        return existing_cache
+            except Exception as e:
+                print(f"[Python] Warning: Could not load cache: {e}")
+
+        # Create lookup for existing detailed data
+        cache_lookup = {str(g['appid']): g for g in existing_cache}
 
         print(f"Szinkronizálás indítása (SteamID: {self.steam_id})...")
         games = self.fetch_owned_games()
         played_games = [g for g in games if g.playtime_forever > 0]
         
         result = []
+        skipped_count = 0
         for game in played_games:
-            game.achievements = self.fetch_achievements(game.appid)
-            if game.achievements:
+            # Smart Merge: Ha már megvan az achievement lista és nem változott drasztikusan a playtime (vagy mindig frissítünk)
+            # A biztonság kedvéért most mindig lekérjük az achievementeket, ha szinkronizálunk, 
+            # de megőrizzük a meglévőket, ha a hívás sikertelen.
+            new_achievements = self.fetch_achievements(game.appid)
+            if new_achievements:
+                game.achievements = new_achievements
+            elif str(game.appid) in cache_lookup:
+                # Fallback to cached achievements if fetch failed
+                cached_data = cache_lookup[str(game.appid)]
+                print(f"[Python] Using cached achievements for {game.name}")
+                # We need to rebuild Achievement objects if we want to use game.to_dict() properly
+                game.achievements = [
+                    Achievement(
+                        a['api_id'], a['title'], a['description'], 
+                        a['is_unlocked'], a['icon_url'], 
+                        datetime.fromisoformat(a['unlock_time']) if a.get('unlock_time') else None
+                    ) for a in cached_data.get('achievements', [])
+                ]
+            
+            if len(game.achievements) > 0:
                 result.append(game.to_dict())
+            else:
+                skipped_count += 1
 
-        with open(self.cache_file, "w", encoding="utf-8") as f:
-            json.dump(result, f, ensure_ascii=False, indent=4)
+        print(f"DEBUG: Filtered out {skipped_count} games with no achievements.")
+
+        # Resilient Save: Use temporary file then rename
+        temp_file = self.cache_file + ".tmp"
+        try:
+            with open(temp_file, "w", encoding="utf-8") as f:
+                json.dump(result, f, ensure_ascii=False, indent=4)
+            
+            # Atomic rename
+            if os.path.exists(self.cache_file):
+                os.remove(self.cache_file)
+            os.rename(temp_file, self.cache_file)
+            print(f"[Python] Cache updated: {len(result)} games saved.")
+        except Exception as e:
+            print(f"[Python] CRITICAL: Failed to save cache: {e}")
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
         
         return result
 

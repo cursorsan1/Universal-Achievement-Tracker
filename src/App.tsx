@@ -383,7 +383,52 @@ function Dashboard() {
           }
         }
 
-        // 4. Sync Games
+        // 4. Load from Electron cache (more persistent) if available
+        if (window.require) {
+          try {
+            const { ipcRenderer } = window.require('electron');
+            const cachedSteamData = await ipcRenderer.invoke('get-cached-steam-data');
+            if (Array.isArray(cachedSteamData) && cachedSteamData.length > 0) {
+              console.log("[React] Hydrating Steam data from Electron cache:", cachedSteamData.length);
+              const mappedGames: Game[] = cachedSteamData.map((g: any) => ({
+                id: `steam-${g.appid}`,
+                appid: g.appid,
+                title: g.name,
+                platform: "Steam",
+                completion: g.completion_rate,
+                playtime: `${g.playtime_hours} óra`,
+                icon: g.icon_url,
+                header_image: g.header_image,
+                color: g.completion_rate === 100 ? "from-yellow-400/20 to-yellow-600/0" : "from-indigo-500/10 to-transparent",
+                platformColor: "text-slate-200 bg-slate-700/50",
+                unlockedCount: g.unlocked_achievements,
+                totalCount: g.total_achievements,
+                achievements: g.achievements || []
+              }));
+
+              setGames(prev => {
+                const otherGames = prev.filter(g => !g.id.startsWith("steam-"));
+                const allGames = [...otherGames, ...mappedGames];
+                localStorage.setItem('cached_games', JSON.stringify(allGames));
+                return allGames;
+              });
+            }
+          } catch (e) {
+            console.warn("Failed to pull cached steam data from Electron", e);
+          }
+        }
+
+        // 5. Send explicit signal to Electron to push cache if it missed it
+        if (window.require) {
+          try {
+            const { ipcRenderer } = window.require('electron');
+            ipcRenderer.send('request-steam-cache');
+          } catch (e) {
+            console.warn("Failed to send request-steam-cache to Electron", e);
+          }
+        }
+
+        // 6. Sync Games
         if (!isInitialized.current) {
           isInitialized.current = true;
           syncGames();
@@ -550,7 +595,14 @@ function Dashboard() {
       }
 
       setGames(prev => {
-        const otherGames = prev.filter(g => !g.id.startsWith("steam-") && !g.id.startsWith("ra-") && !g.id.startsWith("xbox-") && !g.id.startsWith("rpcs3-") && !g.id.startsWith("goldberg-"));
+        const otherGames = prev.filter(g => {
+          if (steamGamesConverted.length > 0 && g.id.startsWith("steam-")) return false;
+          if (raGamesConverted.length > 0 && g.id.startsWith("ra-")) return false;
+          if (xboxGamesConverted.length > 0 && g.id.startsWith("xbox-")) return false;
+          if (rpcs3GamesConverted.length > 0 && g.id.startsWith("rpcs3-")) return false;
+          if (goldbergGamesConverted.length > 0 && g.id.startsWith("goldberg-")) return false;
+          return true;
+        });
         const allGames = [...otherGames, ...steamGamesConverted, ...raGamesConverted, ...xboxGamesConverted, ...rpcs3GamesConverted, ...goldbergGamesConverted];
         localStorage.setItem('cached_games', JSON.stringify(allGames));
         return allGames;
