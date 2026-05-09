@@ -129,7 +129,9 @@ interface Game {
   consoleName?: string;
   scid?: string;
   headerImage?: string;
+  header_image_url?: string;
   cover_url?: string;
+  achievements?: Achievement[];
 }
 
 // ... Rest of the components ...
@@ -279,6 +281,46 @@ function Dashboard() {
   // Load config and sync games on mount
   useEffect(() => {
     const loadAndSync = async () => {
+      // Listen for backend errors from Electron
+      if (window.require) {
+        try {
+          const { ipcRenderer } = window.require('electron');
+          ipcRenderer.on('backend-error', (_: any, message: string) => {
+            alert(message);
+          });
+          
+          ipcRenderer.on('steam-data-updated', (_: any, steamGames: any[]) => {
+            console.log("[React] Received updated Steam data from Electron:", steamGames.length, "games");
+            const mappedGames: Game[] = steamGames.map((g: any) => ({
+              id: `steam-${g.appid}`,
+              appid: g.appid,
+              title: g.name,
+              platform: "Steam",
+              completion: g.completion_rate,
+              playtime: `${g.playtime_hours} óra`,
+              icon: g.icon_url,
+              header_image_url: g.header_image_url,
+              color: g.completion_rate === 100 ? "from-yellow-400/20 to-yellow-600/0" : "from-indigo-500/10 to-transparent",
+              platformColor: "text-slate-200 bg-slate-700/50",
+              unlockedCount: g.unlocked_achievements,
+              totalCount: g.total_achievements,
+              achievements: g.achievements || []
+            }));
+            
+            setGames(prev => {
+              const otherGames = prev.filter(g => !g.id.startsWith("steam-"));
+              const allGames = [...otherGames, ...mappedGames];
+              localStorage.setItem('cached_games', JSON.stringify(allGames));
+              return allGames;
+            });
+            
+            setLastSync(new Date());
+          });
+        } catch (e) {
+          console.warn("Electron IPC not available for error listening", e);
+        }
+      }
+
       try {
         // 1. Get from Electron Store (Persistent)
         if (window.require) {
@@ -327,7 +369,21 @@ function Dashboard() {
           setConfigStatus(statusData);
         }
 
-        // 3. Sync Games
+        // 3. Load from LocalStorage if available
+        const cached = localStorage.getItem('cached_games');
+        if (cached) {
+          try {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setGames(parsed);
+              console.log("[React] Loaded games from localStorage cache");
+            }
+          } catch (e) {
+            console.warn("Failed to parse cached games", e);
+          }
+        }
+
+        // 4. Sync Games
         if (!isInitialized.current) {
           isInitialized.current = true;
           syncGames();
@@ -344,6 +400,16 @@ function Dashboard() {
     if (isSyncing) return;
     setIsSyncing(true);
     try {
+      // Trigger Python sync through Electron if refresh is forced
+      if (force && window.require) {
+        try {
+          const { ipcRenderer } = window.require('electron');
+          await ipcRenderer.invoke('trigger-steam-sync');
+        } catch (e) {
+          console.warn("Backend sync trigger failed:", e);
+        }
+      }
+
       // 0. Check Config Status
       const statusRes = await fetch("/api/sync-status");
       const statusData = await statusRes.json();
@@ -366,12 +432,14 @@ function Dashboard() {
             completion: g.completion_rate,
             playtime: `${g.playtime_hours} óra`,
             icon: g.icon_url,
+            header_image_url: g.header_image_url,
             headerImage: g.header_image,
             cover_url: g.cover_url,
             color: g.completion_rate === 100 ? "from-yellow-400/20 to-yellow-600/0" : "from-indigo-500/10 to-transparent",
             platformColor: "text-slate-200 bg-slate-700/50",
             unlockedCount: g.unlocked_achievements,
-            totalCount: g.total_achievements
+            totalCount: g.total_achievements,
+            achievements: g.achievements || []
           }));
         }
       } catch (e) { console.warn("Steam sync failed:", e); }
@@ -483,7 +551,9 @@ function Dashboard() {
 
       setGames(prev => {
         const otherGames = prev.filter(g => !g.id.startsWith("steam-") && !g.id.startsWith("ra-") && !g.id.startsWith("xbox-") && !g.id.startsWith("rpcs3-") && !g.id.startsWith("goldberg-"));
-        return [...otherGames, ...steamGamesConverted, ...raGamesConverted, ...xboxGamesConverted, ...rpcs3GamesConverted, ...goldbergGamesConverted];
+        const allGames = [...otherGames, ...steamGamesConverted, ...raGamesConverted, ...xboxGamesConverted, ...rpcs3GamesConverted, ...goldbergGamesConverted];
+        localStorage.setItem('cached_games', JSON.stringify(allGames));
+        return allGames;
       });
     } catch (error) {
       console.error("Hiba a szinkronizáláskor:", error);
@@ -516,7 +586,8 @@ function Dashboard() {
         return data?.icon_url || "";
       }
       if (platform === 'STEAM' || platform === 'GOLDBERG') {
-        // Use the achievement proxy endpoint
+        // Use the achievement URL from backend if available, otherwise proxy
+        if (data?.icon_url && data.icon_url.startsWith('http')) return data.icon_url;
         const originalUrl = getSteamImageUrl(game.id, data?.original_hash || data?.icon_url, false);
         return `/api/proxy-achievement?url=${encodeURIComponent(originalUrl)}`;
       }
@@ -524,13 +595,14 @@ function Dashboard() {
     }
 
     if (type === 'header') {
+      if (platform === 'STEAM' || platform === 'GOLDBERG') {
+        if (game.header_image_url) return game.header_image_url;
+        // Use proxy for Steam and Goldberg for banner images
+        return `/api/proxy-image?appid=${encodeURIComponent(getCleanId(game.id))}&platform=${platform}`;
+      }
       if (platform === 'RETROACHIEVEMENTS') {
         // Direct pass for RA header (typically icon)
         return game.icon || "";
-      }
-      if (platform === 'STEAM' || platform === 'GOLDBERG') {
-        // Use proxy for Steam and Goldberg for banner images
-        return `/api/proxy-image?appid=${encodeURIComponent(getCleanId(game.id))}&platform=${platform}`;
       }
       // For all other platforms, return headerImage directly without proxy
       return game.headerImage || game.icon || "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=300&h=450&fit=crop&q=40";
@@ -553,6 +625,14 @@ function Dashboard() {
 
   const fetchAchievements = async (game: Game) => {
     if (isAchLoading) return;
+    
+    // Check if we already have achievements for this game
+    if (game.achievements && game.achievements.length > 0) {
+      setAchievements(game.achievements);
+      setSelectedGame(game);
+      return;
+    }
+
     setIsAchLoading(true);
     setAchievements([]);
     setSelectedGame(game);
@@ -640,11 +720,11 @@ function Dashboard() {
     };
 
     try {
-      // 1. Save to Electron Store (Persistent)
+      // 1. Save to Electron Store (Persistent) and Notify Python Backend
       if (window.require) {
         try {
           const { ipcRenderer } = window.require('electron');
-          ipcRenderer.send('save-settings', configData);
+          await ipcRenderer.invoke('save-settings', configData);
         } catch (e) {
           console.warn("Electron IPC not available for config saving", e);
         }
@@ -665,8 +745,9 @@ function Dashboard() {
         setConfigStatus(statusData);
       }
 
+      // 3. Automated Sync after save
       setTimeout(() => setSaveStatus("idle"), 2000);
-      syncGames(true); // Re-fetch after save
+      await syncGames(true); 
     } catch (error) {
       console.error("Save error:", error);
       setSaveStatus("idle");
@@ -951,7 +1032,7 @@ function Dashboard() {
                   className="p-2 text-slate-500 hover:text-indigo-400 transition-colors disabled:opacity-50 flex items-center gap-2"
                   title="Mélyszinkronizálás indítása"
                 >
-                  <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`} onClick={() => syncGames(true)} />
+                  <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`} />
                   {isSyncing && <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-400 animate-pulse hidden md:inline">Mélyszinkronizálás...</span>}
                 </button>
               </div>

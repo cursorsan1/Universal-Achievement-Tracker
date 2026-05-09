@@ -3,6 +3,7 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn, ChildProcess } from 'child_process';
 import * as fs from 'fs';
+import axios from 'axios';
 
 // ESM fix a __dirname helyettesítésére
 const __filename = fileURLToPath(import.meta.url);
@@ -32,12 +33,46 @@ ipcMain.handle('get-settings', async () => {
   return {};
 });
 
-ipcMain.on('save-settings', (event, settings) => {
+ipcMain.handle('save-settings', async (event, settings) => {
   try {
+    // 1. Save to local JSON file
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-    console.log('[Electron] Settings saved successfully.');
+    console.log('[Electron] Settings saved to file.');
+
+    // 2. Notify Python Backend
+    try {
+      console.log('[Electron] Notifying Python backend at http://localhost:5000/update-config...');
+      const response = await axios.post('http://localhost:5000/update-config', {
+        steamApiKey: settings.steamApiKey,
+        steamId: settings.steamId,
+        settingsPath: settingsPath
+      });
+      console.log('[Electron] Python backend response:', response.data);
+      return { success: true, backendResponse: response.data };
+    } catch (fetchErr) {
+      console.error('[Electron] Failed to notify Python backend:', fetchErr.message);
+      return { success: true, backendError: fetchErr.message };
+    }
   } catch (err) {
     console.error('Failed to save settings:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('trigger-steam-sync', async () => {
+  try {
+    console.log('[Electron] Sync request sent to Python...');
+    const response = await axios.post('http://localhost:5000/sync-steam', {
+      settingsPath: settingsPath
+    }, { timeout: 30000 }); // Increase timeout for sync
+    console.log('[Electron] Python sync response:', response.data);
+    if (mainWindow && response.data.games) {
+      mainWindow.webContents.send('steam-data-updated', response.data.games);
+    }
+    return response.data;
+  } catch (err) {
+    console.error('[Electron] Failed to trigger Python sync:', err.message);
+    throw new Error('A háttérfolyamat nem válaszol. Kérlek indítsd újra az appot!');
   }
 });
 
@@ -97,9 +132,9 @@ function startPythonServer() {
   // Platformfüggő parancs (Windows: python, minden más: python3)
   const pythonCommand = process.platform === 'win32' ? 'python' : 'python3';
 
-  console.log(`[Electron] Indítás: ${pythonCommand} ${serverPath}`);
+  console.log(`[Electron] Indítás: ${pythonCommand} ${serverPath} ${settingsPath}`);
 
-  pythonProcess = spawn(pythonCommand, [serverPath], {
+  pythonProcess = spawn(pythonCommand, [serverPath, settingsPath], {
     stdio: 'inherit'
   });
 
