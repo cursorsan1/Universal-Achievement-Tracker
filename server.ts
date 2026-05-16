@@ -1265,10 +1265,14 @@ app.get("/api/rpcs3/image", (req, res) => {
   }
   // Basic security: only serve PNGs from RPCS3 path
   const config = getConfig();
-  if (!imgPath.startsWith(config.rpcs3Path)) {
+
+  const resolvedImgPath = path.resolve(imgPath);
+  const resolvedRpcs3Path = path.resolve(config.rpcs3Path);
+
+  if (!resolvedImgPath.startsWith(resolvedRpcs3Path)) {
       return res.status(403).send("Forbidden");
   }
-  res.sendFile(imgPath);
+  res.sendFile(resolvedImgPath);
 });
 
 app.get("/api/rpcs3/achievements/:gameId", (req, res) => {
