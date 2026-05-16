@@ -737,7 +737,7 @@ app.get("/api/xbox/games", async (req, res) => {
     const notifications: any[] = [];
     const notifiedMap = getNotifiedAchievements();
 
-    for (const game of baseTitles) {
+    await Promise.all(baseTitles.map(async (game: any) => {
       const gameKey = `xbox-${game.id}`;
       const notifiedList = notifiedMap[gameKey] || [];
 
@@ -762,7 +762,7 @@ app.get("/api/xbox/games", async (req, res) => {
           notifications.push(...newNotifs);
         } catch (e) {}
       }
-    }
+    }));
 
     res.json({ games: baseTitles, notifications });
   } catch (error: any) {
