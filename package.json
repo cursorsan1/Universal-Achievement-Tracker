@@ -13,7 +13,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "electron:start": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\" \"wait-on http://localhost:5173 && tsc electron/main.ts --outDir dist-electron --module esnext --moduleResolution node && electron .\""
+    "electron:start": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\" \"wait-on http://localhost:5173 && tsc electron/main.ts --outDir dist-electron --module esnext --moduleResolution node --target es2022 && electron .\""
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
@@ -43,6 +43,7 @@
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.3",
-    "vitest": "^4.1.6"
+    "vitest": "^4.1.6",
+    "wait-on": "^9.0.10"
   }
 }
