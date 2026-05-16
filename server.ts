@@ -111,7 +111,7 @@ function saveScrapedCache(cache: Record<string, string>) {
   fs.writeFileSync(SCRAPE_CACHE_FILE, JSON.stringify(cache, null, 2));
 }
 
-async function getScrapedSteamImage(appId: string, platform?: string): Promise<string | null> {
+export async function getScrapedSteamImage(appId: string, platform?: string): Promise<string | null> {
   const cache = getScrapedCache();
   if (cache[appId]) return cache[appId];
   
@@ -462,11 +462,16 @@ app.get("/api/ra/games", async (req, res) => {
     const notifications: any[] = [];
     const notifiedMap = getNotifiedAchievements();
 
-    for (const game of result) {
+    const gamesToFetch = result.filter((game: any) => {
       const gameKey = `retroachievements-${game.id}`;
       const notifiedList = notifiedMap[gameKey] || [];
+      return game.unlocked_achievements > notifiedList.length;
+    });
 
-      if (game.unlocked_achievements > notifiedList.length) {
+    const notifChunkSize = 10;
+    for (let i = 0; i < gamesToFetch.length; i += notifChunkSize) {
+      const chunk = gamesToFetch.slice(i, i + notifChunkSize);
+      await Promise.all(chunk.map(async (game: any) => {
         try {
           // Fetch full list for detection
           const detailRes = await fetch(`https://retroachievements.org/API/API_GetGameInfoAndUserProgress.php?u=${raUser}&g=${game.id}&z=${raUser}&y=${raKey}`);
@@ -480,7 +485,7 @@ app.get("/api/ra/games", async (req, res) => {
           const newNotifs = await detectNewAchievements(game, internalAchs, "RetroAchievements");
           notifications.push(...newNotifs);
         } catch (e) {}
-      }
+      }));
     }
 
     res.json({ games: result, notifications });
@@ -1280,10 +1285,14 @@ app.get("/api/rpcs3/image", (req, res) => {
   }
   // Basic security: only serve PNGs from RPCS3 path
   const config = getConfig();
-  if (!imgPath.startsWith(config.rpcs3Path)) {
+
+  const resolvedImgPath = path.resolve(imgPath);
+  const resolvedRpcs3Path = path.resolve(config.rpcs3Path);
+
+  if (!resolvedImgPath.startsWith(resolvedRpcs3Path)) {
       return res.status(403).send("Forbidden");
   }
-  res.sendFile(imgPath);
+  res.sendFile(resolvedImgPath);
 });
 
 app.get("/api/rpcs3/achievements/:gameId", (req, res) => {

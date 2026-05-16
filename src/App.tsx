@@ -24,7 +24,17 @@ import { useState, useEffect, useMemo, useCallback, useRef, ChangeEvent } from "
 import { Routes, Route, useSearchParams } from "react-router-dom";
 
 // IPC helper
-const sendNotification = (title: string, text: string, image?: string, rarity?: string, gameTitle?: string, soundPath?: string, notificationStyle?: any) => {
+interface NotificationOptions {
+  title: string;
+  text: string;
+  image?: string;
+  rarity?: string;
+  gameTitle?: string;
+  soundPath?: string;
+  notificationStyle?: any;
+}
+
+const sendNotification = ({ title, text, image, rarity, gameTitle, soundPath, notificationStyle }: NotificationOptions) => {
     if (window.require) {
         try {
             const { ipcRenderer } = window.require('electron');
@@ -267,14 +277,15 @@ function Dashboard() {
     notifs.forEach((notif, index) => {
       setTimeout(() => {
         // Only use Electron IPC for notifications
-        sendNotification(
-          notif.title, 
-          notif.description || notif.text, 
-          notif.gameIcon || notif.icon_url, 
-          notif.rarity || 'common', 
-          notif.gameTitle,
-          getAudioUrl(notif.rarity || "common")
-        );
+        sendNotification({
+          title: notif.title,
+          text: notif.description || notif.text,
+          image: notif.gameIcon || notif.icon_url,
+          rarity: notif.rarity || 'common',
+          gameTitle: notif.gameTitle,
+          soundPath: getAudioUrl(notif.rarity || "common"),
+          notificationStyle
+        });
       }, index * 1000); // Stagger notifications
     });
   };
@@ -848,7 +859,15 @@ function Dashboard() {
     const soundPath = getAudioUrl(rarity);
 
     // IPC Trigger
-    sendNotification(configData.title, configData.desc, icon, rarity, gameTitle, soundPath, notificationStyle);
+    sendNotification({
+      title: configData.title,
+      text: configData.desc,
+      image: icon,
+      rarity,
+      gameTitle,
+      soundPath,
+      notificationStyle
+    });
   };
 
   const handleSoundUpload = (rarity: string, e: ChangeEvent<HTMLInputElement>) => {
@@ -875,15 +894,15 @@ function Dashboard() {
     const rarity = "rare"; 
     const soundPath = getAudioUrl(rarity);
     
-    sendNotification(
-      ach.title, 
-      ach.description, 
-      ach.icon_url || game.icon, 
-      rarity, 
-      game.title,
+    sendNotification({
+      title: ach.title,
+      text: ach.description,
+      image: ach.icon_url || game.icon,
+      rarity,
+      gameTitle: game.title,
       soundPath,
       notificationStyle
-    );
+    });
   };
 
   const handleDebugTest = async () => {
@@ -1884,7 +1903,6 @@ function Dashboard() {
                             onError={(e) => {
                               const target = e.target as HTMLImageElement;
                               console.error("❌ Kép betöltési hiba:", target.src);
-                              // target.src = "https://api.dicebear.com/7.x/identicon/svg?seed=" + ach.api_id;
                               addLog(`FAILED TO LOAD: ${target.src}`, 'error');
                             }}
                             className={`w-12 h-12 md:w-14 md:h-14 rounded-lg object-cover shadow-lg border ${
