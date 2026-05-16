@@ -105,7 +105,7 @@ function saveScrapedCache(cache: Record<string, string>) {
   fs.writeFileSync(SCRAPE_CACHE_FILE, JSON.stringify(cache, null, 2));
 }
 
-async function getScrapedSteamImage(appId: string, platform?: string): Promise<string | null> {
+export async function getScrapedSteamImage(appId: string, platform?: string): Promise<string | null> {
   const cache = getScrapedCache();
   if (cache[appId]) return cache[appId];
   
@@ -1575,4 +1575,6 @@ async function startServer() {
   });
 }
 
-startServer();
+if (process.env.NODE_ENV !== "test") {
+  startServer();
+}
