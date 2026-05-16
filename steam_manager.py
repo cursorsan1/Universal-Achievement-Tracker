@@ -4,6 +4,7 @@ import requests
 import json
 import os
 import sys
+import concurrent.futures
 from datetime import datetime
 from typing import List, Optional, Dict
 
@@ -237,7 +238,8 @@ class SteamManager:
         
         result = []
         skipped_count = 0
-        for game in played_games:
+
+        def process_game(game):
             # Smart Merge: Ha már megvan az achievement lista és nem változott drasztikusan a playtime (vagy mindig frissítünk)
             # A biztonság kedvéért most mindig lekérjük az achievementeket, ha szinkronizálunk, 
             # de megőrizzük a meglévőket, ha a hívás sikertelen.
@@ -256,7 +258,12 @@ class SteamManager:
                         datetime.fromisoformat(a['unlock_time']) if a.get('unlock_time') else None
                     ) for a in cached_data.get('achievements', [])
                 ]
-            
+            return game
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            processed_games = list(executor.map(process_game, played_games))
+
+        for game in processed_games:
             if len(game.achievements) > 0:
                 result.append(game.to_dict())
             else:
