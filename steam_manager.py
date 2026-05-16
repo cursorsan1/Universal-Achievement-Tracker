@@ -4,11 +4,15 @@ import requests
 import json
 import os
 import sys
+import logging
 from datetime import datetime
 from typing import List, Optional, Dict
 
 app = Flask(__name__)
 CORS(app)
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Global configuration state
 SETTINGS_FILE = sys.argv[1] if len(sys.argv) > 1 else 'settings.json'
@@ -16,10 +20,10 @@ SETTINGS_FILE = sys.argv[1] if len(sys.argv) > 1 else 'settings.json'
 USER_DATA_PATH = os.getenv('USER_DATA_PATH')
 if USER_DATA_PATH:
     CACHE_DIR = USER_DATA_PATH
-    print(f"[Python] Using USER_DATA_PATH for cache: {CACHE_DIR}")
+    logger.info(f"[Python] Using USER_DATA_PATH for cache: {CACHE_DIR}")
 else:
     CACHE_DIR = os.path.dirname(os.path.abspath(SETTINGS_FILE))
-    print(f"[Python] Falling back to settings directory for cache: {CACHE_DIR}")
+    logger.info(f"[Python] Falling back to settings directory for cache: {CACHE_DIR}")
 
 CACHE_FILE_PATH = os.path.join(CACHE_DIR, "steam_cache.json")
 
@@ -37,9 +41,9 @@ def reload_config():
                 settings = json.load(f)
                 config['steamApiKey'] = settings.get('steamApiKey', config['steamApiKey'])
                 config['steamId'] = settings.get('steamId', config['steamId'])
-                print(f"[Python] Config reloaded from {SETTINGS_FILE}")
+                logger.info(f"[Python] Config reloaded from {SETTINGS_FILE}")
         except Exception as e:
-            print(f"[Python] Failed to reload config: {e}")
+            logger.error(f"[Python] Failed to reload config: {e}")
 
 # Call initially
 reload_config()
@@ -106,7 +110,7 @@ class SteamManager:
 
     def fetch_owned_games(self) -> List[SteamGame]:
         """Lekéri a felhasználó összes játékát."""
-        print(f"PYTHON_EXECUTING_SYNC: Using key {self.api_key[:5]}... and ID {self.steam_id}")
+        logger.info(f"PYTHON_EXECUTING_SYNC: Using key {self.api_key[:5]}... and ID {self.steam_id}")
         url = f"{self.base_url}/IPlayerService/GetOwnedGames/v0001/"
         params = {
             "key": self.api_key,
@@ -117,18 +121,18 @@ class SteamManager:
         }
         
         if self.api_key == "YOUR_STEAM_WEB_API_KEY" or not self.api_key:
-            print("Kérlek add meg a Steam API kulcsodat a configban!")
+            logger.warning("Kérlek add meg a Steam API kulcsodat a configban!")
             return []
         
         masked_url = f"{url}?key=XXXXX&steamid={self.steam_id}"
-        print(f"DEBUG: Steam API Request: {masked_url}")
+        logger.debug(f"DEBUG: Steam API Request: {masked_url}")
         
         try:
             response = requests.get(url, params=params)
-            print(f"DEBUG: Steam API Response Status: {response.status_code}")
+            logger.debug(f"DEBUG: Steam API Response Status: {response.status_code}")
             
             if response.status_code == 401 or response.status_code == 403:
-                print("Hiba: Érvénytelen Steam API kulcs vagy hozzáférés megtagadva.")
+                logger.error("Hiba: Érvénytelen Steam API kulcs vagy hozzáférés megtagadva.")
                 return []
             
             response.raise_for_status()
@@ -136,7 +140,7 @@ class SteamManager:
             games_data = data.get("response", {}).get("games", [])
             
             if not games_data:
-                print("DEBUG: Steam returned 0 games. Check Privacy Settings!")
+                logger.debug("DEBUG: Steam returned 0 games. Check Privacy Settings!")
                 return []
             
             games = []
@@ -152,7 +156,7 @@ class SteamManager:
                 games.append(game)
             return games
         except Exception as e:
-            print(f"Hiba a játékok lekérésekor: {e}")
+            logger.error(f"Hiba a játékok lekérésekor: {e}")
             return []
 
     def fetch_achievements(self, appid: str) -> List[Achievement]:
@@ -212,7 +216,7 @@ class SteamManager:
                     achievements.append(ach)
             return achievements
         except Exception as e:
-            print(f"DEBUG: Error fetching achievements for {appid}: {e}")
+            logger.debug(f"DEBUG: Error fetching achievements for {appid}: {e}")
             return []
 
     def sync_all(self, use_cache: bool = True) -> List[Dict]:
@@ -223,15 +227,15 @@ class SteamManager:
                 with open(self.cache_file, "r", encoding="utf-8") as f:
                     existing_cache = json.load(f)
                     if use_cache:
-                        print(f"[Python] Using {len(existing_cache)} cached games.")
+                        logger.info(f"[Python] Using {len(existing_cache)} cached games.")
                         return existing_cache
             except Exception as e:
-                print(f"[Python] Warning: Could not load cache: {e}")
+                logger.warning(f"[Python] Warning: Could not load cache: {e}")
 
         # Create lookup for existing detailed data
         cache_lookup = {str(g['appid']): g for g in existing_cache}
 
-        print(f"Szinkronizálás indítása (SteamID: {self.steam_id})...")
+        logger.info(f"Szinkronizálás indítása (SteamID: {self.steam_id})...")
         games = self.fetch_owned_games()
         played_games = [g for g in games if g.playtime_forever > 0]
         
@@ -247,7 +251,7 @@ class SteamManager:
             elif str(game.appid) in cache_lookup:
                 # Fallback to cached achievements if fetch failed
                 cached_data = cache_lookup[str(game.appid)]
-                print(f"[Python] Using cached achievements for {game.name}")
+                logger.info(f"[Python] Using cached achievements for {game.name}")
                 # We need to rebuild Achievement objects if we want to use game.to_dict() properly
                 game.achievements = [
                     Achievement(
@@ -262,7 +266,7 @@ class SteamManager:
             else:
                 skipped_count += 1
 
-        print(f"DEBUG: Filtered out {skipped_count} games with no achievements.")
+        logger.debug(f"DEBUG: Filtered out {skipped_count} games with no achievements.")
 
         # Resilient Save: Use temporary file then rename
         temp_file = self.cache_file + ".tmp"
@@ -274,9 +278,9 @@ class SteamManager:
             if os.path.exists(self.cache_file):
                 os.remove(self.cache_file)
             os.rename(temp_file, self.cache_file)
-            print(f"[Python] Cache updated: {len(result)} games saved.")
+            logger.info(f"[Python] Cache updated: {len(result)} games saved.")
         except Exception as e:
-            print(f"[Python] CRITICAL: Failed to save cache: {e}")
+            logger.critical(f"[Python] CRITICAL: Failed to save cache: {e}")
             if os.path.exists(temp_file):
                 os.remove(temp_file)
         
@@ -290,7 +294,7 @@ def update_config():
     if not data:
         return jsonify({"status": "error", "message": "No data provided"}), 400
     
-    print(f"[Python] Update requested: {data}")
+    logger.info(f"[Python] Update requested: {data}")
     
     settings_path = data.get('settingsPath')
     if settings_path and os.path.exists(settings_path):
@@ -299,9 +303,9 @@ def update_config():
                 settings = json.load(f)
                 config['steamApiKey'] = settings.get('steamApiKey', config['steamApiKey'])
                 config['steamId'] = settings.get('steamId', config['steamId'])
-                print(f"Python: Reloaded settings from {settings_path}")
+                logger.info(f"Python: Reloaded settings from {settings_path}")
         except Exception as e:
-            print(f"[Python] Failed to read settings file: {e}")
+            logger.error(f"[Python] Failed to read settings file: {e}")
 
     # Fallback to direct keys if provided in balance
     if 'steamApiKey' in data:
@@ -312,7 +316,7 @@ def update_config():
     manager = SteamManager(config['steamApiKey'], config['steamId'])
     try:
         results = manager.sync_all(use_cache=False)
-        print(f"[Python] Synchronization completed successfully. Found {len(results)} games.")
+        logger.info(f"[Python] Synchronization completed successfully. Found {len(results)} games.")
         return jsonify({
             "status": "success", 
             "message": "Python config updated, sync started", 
@@ -320,18 +324,18 @@ def update_config():
             "games": results
         })
     except Exception as e:
-        print(f"[Python] Synchronization failed: {e}")
+        logger.error(f"[Python] Synchronization failed: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/sync-steam', methods=['POST'])
 def sync_steam():
     reload_config()
-    print(f"Python: Syncing started for Steam ID: {config['steamId']}")
+    logger.info(f"Python: Syncing started for Steam ID: {config['steamId']}")
 
     manager = SteamManager(config['steamApiKey'], config['steamId'])
     try:
         results = manager.sync_all(use_cache=False)
-        print(f"[Python] Synchronization completed successfully. Found {len(results)} games.")
+        logger.info(f"[Python] Synchronization completed successfully. Found {len(results)} games.")
         return jsonify({
             "status": "success", 
             "message": "Python sync completed", 
@@ -339,7 +343,7 @@ def sync_steam():
             "games": results
         })
     except Exception as e:
-        print(f"[Python] Synchronization failed: {e}")
+        logger.error(f"[Python] Synchronization failed: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/sync', methods=['GET'])
@@ -349,5 +353,5 @@ def get_sync():
     return jsonify(data)
 
 if __name__ == "__main__":
-    print("[Python] Backend server starting on port 5000...")
+    logger.info("[Python] Backend server starting on port 5000...")
     app.run(port=5000, host='0.0.0.0')
