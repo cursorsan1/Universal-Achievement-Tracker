@@ -59,17 +59,22 @@ const SCRAPE_CACHE_FILE = path.join(CACHE_DIR, "scraped_images.json");
 
 // Cleanup cache on startup
 if (fs.existsSync(CACHE_DIR)) {
-  fs.rmSync(CACHE_DIR, { recursive: true, force: true });
+  try {
+    fs.rmSync(CACHE_DIR, { recursive: true, force: true });
+  } catch (e) {}
 }
-fs.mkdirSync(CACHE_DIR);
-
+try {
+  fs.mkdirSync(CACHE_DIR);
+} catch (e) {}
 
 // Global Config for Local Library storage
 const LIBRARY_FILE = "local_library.json";
 const IMAGE_CACHE_DIR = path.resolve(CACHE_DIR, "images");
 
 if (!fs.existsSync(IMAGE_CACHE_DIR)) {
-  fs.mkdirSync(IMAGE_CACHE_DIR, { recursive: true });
+  try {
+    fs.mkdirSync(IMAGE_CACHE_DIR, { recursive: true });
+  } catch (e) {}
 }
 
 // Ensure library file exists
@@ -150,7 +155,7 @@ async function getScrapedSteamImage(appId: string, platform?: string): Promise<s
 }
 
 // Helpers for Notified Achievements
-function getNotifiedAchievements(): Record<string, string[]> {
+export function getNotifiedAchievements(): Record<string, string[]> {
   if (fs.existsSync(NOTIFIED_CACHE_FILE)) {
     try {
       return JSON.parse(fs.readFileSync(NOTIFIED_CACHE_FILE, "utf-8"));
@@ -161,14 +166,14 @@ function getNotifiedAchievements(): Record<string, string[]> {
   return {};
 }
 
-function saveNotifiedAchievements(notified: Record<string, string[]>) {
+export function saveNotifiedAchievements(notified: Record<string, string[]>) {
   fs.writeFileSync(NOTIFIED_CACHE_FILE, JSON.stringify(notified, null, 2));
 }
 
 // Global Notification Processing
 let latestNotification: any = null;
 
-async function detectNewAchievements(game: any, achievements: any[], platform: string) {
+export async function detectNewAchievements(game: any, achievements: any[], platform: string) {
   const notifiedMap = getNotifiedAchievements();
   const gameKey = `${platform.toLowerCase()}-${game.appid || game.id}`;
   
