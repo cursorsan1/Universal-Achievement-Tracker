@@ -1335,10 +1335,59 @@ app.get("/api/rpcs3/achievements/:gameId", (req, res) => {
 });
 
 // --- IMAGE PROXY (CORS FIX) ---
+
+/**
+ * Validates a URL to prevent Server-Side Request Forgery (SSRF).
+ * Ensures the URL uses http/https protocols and blocks common internal/loopback
+ * hostnames and IP addresses.
+ */
+function isValidProxyUrl(urlString: string): boolean {
+  try {
+    const parsedUrl = new URL(urlString);
+
+    // Only allow HTTP/HTTPS
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      return false;
+    }
+
+    const hostname = parsedUrl.hostname.toLowerCase();
+
+    // Block obvious local/internal hostnames
+    if (
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '::1' ||
+      hostname === '0.0.0.0'
+    ) {
+      return false;
+    }
+
+    // Block IP ranges (10.x.x.x, 192.168.x.x, 172.16.x.x-172.31.x.x, 169.254.x.x)
+    if (
+      hostname.startsWith('10.') ||
+      hostname.startsWith('192.168.') ||
+      hostname.match(/^172\.(1[6-9]|2[0-9]|3[0-1])\./) ||
+      hostname.startsWith('169.254.')
+    ) {
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    // If URL parsing fails, it's invalid
+    return false;
+  }
+}
+
 // Achievement icon proxy (direct pass-through)
 app.get("/api/proxy-achievement", async (req, res) => {
   const imageUrl = req.query.url as string;
   if (!imageUrl) return res.status(400).send("Missing URL");
+
+  if (!isValidProxyUrl(imageUrl)) {
+    console.warn(`Blocked invalid achievement icon URL: ${imageUrl}`);
+    return res.status(400).send("Invalid or unresolvable URL");
+  }
 
   console.log(`DEBUG: Achievement icon request: ${imageUrl}`);
 
@@ -1387,6 +1436,15 @@ app.get("/api/proxy-image", async (req, res) => {
     res.send(transparentGif);
     return;
   }
+
+  if (!isValidProxyUrl(finalUrl)) {
+    console.warn(`Blocked invalid banner image URL: ${finalUrl}`);
+    const transparentGif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+    res.set('Content-Type', 'image/gif');
+    res.send(transparentGif);
+    return;
+  }
+
   imageUrl = finalUrl;
 
   try {
