@@ -6,6 +6,7 @@ import os
 import sys
 from datetime import datetime
 from typing import List, Optional, Dict
+from dataclasses import dataclass
 
 app = Flask(__name__)
 CORS(app)
@@ -45,15 +46,15 @@ def reload_config():
 reload_config()
 
 # Adatmodellek (Architecture szellemében)
+@dataclass
 class Achievement:
-    def __init__(self, api_id, title, description, is_unlocked, icon_url, unlock_time=None):
-        self.api_id = api_id
-        self.title = title
-        self.description = description
-        self.is_unlocked = is_unlocked
-        self.icon_url = icon_url
-        self.unlock_time = unlock_time
-        self.platform = "Steam"
+    api_id: str
+    title: str
+    description: str
+    is_unlocked: bool
+    icon_url: str
+    unlock_time: Optional[datetime] = None
+    platform: str = "Steam"
 
     def to_dict(self):
         return {
@@ -251,9 +252,12 @@ class SteamManager:
                 # We need to rebuild Achievement objects if we want to use game.to_dict() properly
                 game.achievements = [
                     Achievement(
-                        a['api_id'], a['title'], a['description'], 
-                        a['is_unlocked'], a['icon_url'], 
-                        datetime.fromisoformat(a['unlock_time']) if a.get('unlock_time') else None
+                        api_id=a['api_id'],
+                        title=a['title'],
+                        description=a['description'],
+                        is_unlocked=a['is_unlocked'],
+                        icon_url=a['icon_url'],
+                        unlock_time=datetime.fromisoformat(a['unlock_time']) if a.get('unlock_time') else None
                     ) for a in cached_data.get('achievements', [])
                 ]
             
