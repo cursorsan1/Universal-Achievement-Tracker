@@ -1,3 +1,4 @@
+import logger from "./logger";
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
@@ -128,7 +129,7 @@ async function getScrapedSteamImage(appId: string, platform?: string): Promise<s
     // Try to find the header image or fallback to open graph image
     let imgSrc = $('.game_header_image_full').attr('src') || $('meta[property="og:image"]').attr('content');
     
-    console.log(`DEBUG: Scraped image for AppID ${appId} - URL: ${imgSrc}`);
+    logger.debug(`Scraped image for AppID ${appId} - URL: ${imgSrc}`);
 
     if (imgSrc) {
       const cleanUrl = imgSrc.split('?')[0]; // Remove query params
@@ -140,11 +141,11 @@ async function getScrapedSteamImage(appId: string, platform?: string): Promise<s
         saveScrapedCache(cache);
         return cleanUrl;
       } catch (headError) {
-        console.warn(`Scraped URL invalid for ${appId}: ${cleanUrl}`);
+        logger.warn(`Scraped URL invalid for ${appId}: ${cleanUrl}`);
       }
     }
   } catch (error) {
-    console.warn(`Scraping failed for AppID ${appId}:`, (error as Error).message);
+    logger.warn(`Scraping failed for AppID ${appId}:`, (error as Error).message);
   }
   return null;
 }
@@ -282,7 +283,7 @@ app.post("/api/update-config", (req, res) => {
 
     res.json({ status: "ok", config: updatedConfig });
   } catch (error) {
-    console.error("Failed to update config:", error);
+    logger.error("Failed to update config:", error);
     res.status(500).json({ error: "Failed to update config" });
   }
 });
@@ -364,7 +365,7 @@ app.get("/api/steam/achievements/:appid", async (req, res) => {
     fs.writeFileSync(achCacheFile, JSON.stringify(result, null, 2));
     res.json(result);
   } catch (error) {
-    console.error(`Error fetching achievements for ${appid}:`, error);
+    logger.error(`Error fetching achievements for ${appid}:`, error);
     res.status(500).json({ error: "Failed to fetch achievements" });
   }
 });
@@ -478,7 +479,7 @@ app.get("/api/ra/games", async (req, res) => {
 
     res.json({ games: result, notifications });
   } catch (error) {
-    console.error("Error fetching RA games Deep Sync:", error);
+    logger.error("Error fetching RA games Deep Sync:", error);
     res.status(500).json({ error: "Failed to fetch RA games" });
   }
 });
@@ -518,7 +519,7 @@ app.get("/api/ra/achievements/:gameid", async (req, res) => {
     fs.writeFileSync(cacheFile, JSON.stringify(achievements, null, 2));
     res.json(achievements);
   } catch (error) {
-    console.error(`Error fetching RA achievs for ${gameid}:`, error);
+    logger.error(`Error fetching RA achievs for ${gameid}:`, error);
     res.status(500).json({ error: "Failed to fetch RA achievements" });
   }
 });
@@ -576,9 +577,9 @@ app.get("/api/xbox/games", async (req, res) => {
           (thResponse.data.titles || []).forEach((thTitle: any) => {
             titleHubMap[String(thTitle.titleId)] = thTitle;
           });
-          console.log(`DEBUG: TitleHub User Batch success. Found ${Object.keys(titleHubMap).length} entries.`);
+          logger.debug(`TitleHub User Batch success. Found ${Object.keys(titleHubMap).length} entries.`);
         } catch (batchErr: any) {
-          console.error("TitleHub User Batch failed (400?), trying Global Batch with titleIds key...");
+          logger.error("TitleHub User Batch failed (400?), trying Global Batch with titleIds key...");
           try {
             const globalBatchRes = await axios.post(`https://titlehub.xboxlive.com/titles/batch/decoration/detail`, 
               { titleIds: titleIds },
@@ -596,9 +597,9 @@ app.get("/api/xbox/games", async (req, res) => {
             (globalBatchRes.data.titles || []).forEach((thTitle: any) => {
               titleHubMap[String(thTitle.titleId)] = thTitle;
             });
-            console.log(`DEBUG: TitleHub Global Batch success. Found ${Object.keys(titleHubMap).length} entries.`);
+            logger.debug(`TitleHub Global Batch success. Found ${Object.keys(titleHubMap).length} entries.`);
           } catch (globalErr) {
-            console.error("TitleHub Global Batch also failed, falling back to individual...");
+            logger.error("TitleHub Global Batch also failed, falling back to individual...");
           }
         }
 
@@ -622,11 +623,11 @@ app.get("/api/xbox/games", async (req, res) => {
               }
             } catch (indErr) { /* Skip failures */ }
           }));
-          console.log(`DEBUG: After individual sync, TitleHub Map has ${Object.keys(titleHubMap).length} entries.`);
+          logger.debug(`After individual sync, TitleHub Map has ${Object.keys(titleHubMap).length} entries.`);
         }
       }
     } catch (e: any) {
-      console.error("TitleHub meta fetch failed:", e.message);
+      logger.error("TitleHub meta fetch failed:", e.message);
     }
     
     // Map titles to our internal format, merging rich metadata from TitleHub
@@ -688,7 +689,7 @@ app.get("/api/xbox/games", async (req, res) => {
         }
       }
 
-      console.log(`DEBUG: Játék: ${title.name} | Talált képek: ${imagesArr.length} | Végső URL: ${iconUrl || "NEM TALÁLHATÓ!"}`);
+      logger.debug(`Játék: ${title.name} | Talált képek: ${imagesArr.length} | Végső URL: ${iconUrl || "NEM TALÁLHATÓ!"}`);
 
       return {
         id: titleIdStr,
@@ -766,7 +767,7 @@ app.get("/api/xbox/games", async (req, res) => {
 
     res.json({ games: baseTitles, notifications });
   } catch (error: any) {
-    console.error("Error fetching Xbox games:", error.response?.status || error.message);
+    logger.error("Error fetching Xbox games:", error.response?.status || error.message);
     if (error.response?.status === 401) {
       return res.status(401).json({ error: "Token lejárt" });
     }
@@ -817,7 +818,7 @@ app.get("/api/xbox/achievements/:scid/:titleId", async (req, res) => {
 
     res.json(achievements);
   } catch (error: any) {
-    console.error(`Error fetching Xbox achievements for ${titleId}:`, error.response?.status || error.message);
+    logger.error(`Error fetching Xbox achievements for ${titleId}:`, error.response?.status || error.message);
     if (error.response?.status === 401) {
       return res.status(401).json({ error: "Token lejárt" });
     }
@@ -867,7 +868,7 @@ async function getSteamGameMetadata(appId: string, apiKey: string, localGamePath
       const scraped = await getScrapedSteamImage(appId, "STEAM");
       metadata.header_image = scraped || `https://cdn.akamai.steamstatic.com/steam/apps/${appId}/header.jpg`;
     }
-    console.log(`[STEAM METADATA] Header Image URL for ${appId}:`, metadata.header_image);
+    logger.info(`[STEAM METADATA] Header Image URL for ${appId}:`, metadata.header_image);
 
     // 2. Get Achievement Schema from Steam API
     // If apiKey is empty, this might fail, we catch it
@@ -883,7 +884,7 @@ async function getSteamGameMetadata(appId: string, apiKey: string, localGamePath
           }));
         }
       } catch (e) {
-        console.error(`Steam Schema API failed for ${appId} with key.`);
+        logger.error(`Steam Schema API failed for ${appId} with key.`);
       }
     }
 
@@ -911,7 +912,7 @@ async function getSteamGameMetadata(appId: string, apiKey: string, localGamePath
           }
         }
       } catch (e) {
-        console.error(`Steam XML scraping fallback failed for ${appId}.`);
+        logger.error(`Steam XML scraping fallback failed for ${appId}.`);
       }
     }
 
@@ -923,7 +924,7 @@ async function getSteamGameMetadata(appId: string, apiKey: string, localGamePath
       } catch (e) {}
     }
   } catch (e: any) {
-    console.error(`Metadata fetch failed for ${appId}:`, e.message);
+    logger.error(`Metadata fetch failed for ${appId}:`, e.message);
   }
 
   return metadata;
@@ -1035,7 +1036,7 @@ app.get("/api/goldberg/games", async (req, res) => {
 
     res.json({ games: filteredResult, notifications });
   } catch (error) {
-    console.error("Error fetching Goldberg games:", error);
+    logger.error("Error fetching Goldberg games:", error);
     res.status(500).json({ error: "Failed to scan Goldberg folder" });
   }
 });
@@ -1129,7 +1130,7 @@ app.post("/api/debug/process-goldberg-test", async (req, res) => {
       achievements
     });
   } catch (error: any) {
-    console.error("Debug process failed:", error);
+    logger.error("Debug process failed:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1147,7 +1148,7 @@ app.get("/api/rpcs3/games", async (req, res) => {
 
   const trophyPath = path.join(rootPath, RPCS3_TROPHY_SUBPATH);
   if (!fs.existsSync(trophyPath)) {
-    console.warn("RPCS3 Trophy path not found:", trophyPath);
+    logger.warn("RPCS3 Trophy path not found:", trophyPath);
     return res.json([]);
   }
 
@@ -1245,14 +1246,14 @@ app.get("/api/rpcs3/games", async (req, res) => {
             notifications.push(...newNotifs);
           }
         } catch (e) {
-          console.error("RPCS3 Notif detect error:", e);
+          logger.error("RPCS3 Notif detect error:", e);
         }
       }
     }
 
     res.json({ games: result, notifications });
   } catch (error) {
-    console.error("Error fetching RPCS3 games:", error);
+    logger.error("Error fetching RPCS3 games:", error);
     res.status(500).json({ error: "Failed to scan RPCS3 folder" });
   }
 });
@@ -1331,7 +1332,7 @@ app.get("/api/proxy-achievement", async (req, res) => {
   const imageUrl = req.query.url as string;
   if (!imageUrl) return res.status(400).send("Missing URL");
 
-  console.log(`DEBUG: Achievement icon request: ${imageUrl}`);
+  logger.debug(`Achievement icon request: ${imageUrl}`);
 
   try {
     const response = await axios.get(imageUrl, {
@@ -1341,7 +1342,7 @@ app.get("/api/proxy-achievement", async (req, res) => {
     res.set('Content-Type', response.headers['content-type'] as string);
     res.send(response.data);
   } catch (error) {
-    console.error(`Proxy error for achievement icon ${imageUrl}:`, (error as Error).message);
+    logger.error(`Proxy error for achievement icon ${imageUrl}:`, (error as Error).message);
     // Return 1x1 transparent pixel on failure
     const pixel = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
     res.set('Content-Type', 'image/gif');
@@ -1354,7 +1355,7 @@ app.get("/api/proxy-image", async (req, res) => {
   const appId = req.query.appid as string;
   const platform = req.query.platform as string;
 
-  console.log(`DEBUG: Banner image request: appId=${appId}, platform=${platform}, url=${imageUrl}`);
+  logger.debug(`Banner image request: appId=${appId}, platform=${platform}, url=${imageUrl}`);
 
   let finalUrl = "";
   
@@ -1393,7 +1394,7 @@ app.get("/api/proxy-image", async (req, res) => {
 
     res.send(response.data);
   } catch (error) {
-    console.warn(`Proxy error for ${imageUrl}:`, (error as Error).message);
+    logger.warn(`Proxy error for ${imageUrl}:`, (error as Error).message);
     
     // Clear cache if appId was provided, as the URL it got might be stale/bad
     if (appId) {
@@ -1401,7 +1402,7 @@ app.get("/api/proxy-image", async (req, res) => {
         if (cache[appId]) {
             delete cache[appId];
             saveScrapedCache(cache);
-            console.info(`Cleared stale scrape cache for appId: ${appId}`);
+            logger.info(`Cleared stale scrape cache for appId: ${appId}`);
         }
     }
 
@@ -1498,7 +1499,7 @@ app.get("/api/steam/games", async (req, res) => {
             }
           }
         } catch (error) {
-          console.warn(`Skipping game ${game.appid} (${game.name})`);
+          logger.warn(`Skipping game ${game.appid} (${game.name})`);
         }
       }));
     }
@@ -1542,7 +1543,7 @@ app.get("/api/steam/games", async (req, res) => {
           const newNotifs = await detectNewAchievements(game, internalAchs, "Steam");
           notifications.push(...newNotifs);
         } catch (e) {
-          console.error(`Steam notification fetch failed for ${game.name}`);
+          logger.error(`Steam notification fetch failed for ${game.name}`);
         }
       }
     }
@@ -1550,7 +1551,7 @@ app.get("/api/steam/games", async (req, res) => {
     res.json({ games: result, notifications });
 
   } catch (error) {
-    console.error("Error fetching from Steam:", error);
+    logger.error("Error fetching from Steam:", error);
     res.status(500).json({ error: "Failed to fetch from Steam API" });
   }
 });
@@ -1571,7 +1572,7 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    logger.info(`Server running on http://localhost:${PORT}`);
   });
 }
 
