@@ -24,7 +24,16 @@ import { useState, useEffect, useMemo, useCallback, useRef, ChangeEvent } from "
 import { Routes, Route, useSearchParams } from "react-router-dom";
 
 // IPC helper
-const sendNotification = (title: string, text: string, image?: string, rarity?: string, gameTitle?: string, soundPath?: string) => {
+interface NotificationOptions {
+  title: string;
+  text: string;
+  image?: string;
+  rarity?: string;
+  gameTitle?: string;
+  soundPath?: string;
+}
+
+const sendNotification = ({ title, text, image, rarity, gameTitle, soundPath }: NotificationOptions) => {
     if (window.require) {
         try {
             const { ipcRenderer } = window.require('electron');
@@ -255,14 +264,14 @@ function Dashboard() {
     notifs.forEach((notif, index) => {
       setTimeout(() => {
         // Only use Electron IPC for notifications
-        sendNotification(
-          notif.title, 
-          notif.description || notif.text, 
-          notif.gameIcon || notif.icon_url, 
-          notif.rarity || 'common', 
-          notif.gameTitle,
-          getAudioUrl(notif.rarity || "common")
-        );
+        sendNotification({
+          title: notif.title,
+          text: notif.description || notif.text,
+          image: notif.gameIcon || notif.icon_url,
+          rarity: notif.rarity || 'common',
+          gameTitle: notif.gameTitle,
+          soundPath: getAudioUrl(notif.rarity || "common")
+        });
       }, index * 1000); // Stagger notifications
     });
   };
@@ -827,7 +836,14 @@ function Dashboard() {
     const soundPath = getAudioUrl(rarity);
 
     // IPC Trigger
-    sendNotification(configData.title, configData.desc, icon, rarity, gameTitle, soundPath);
+    sendNotification({
+      title: configData.title,
+      text: configData.desc,
+      image: icon,
+      rarity,
+      gameTitle,
+      soundPath
+    });
   };
 
   const handleSoundUpload = (rarity: string, e: ChangeEvent<HTMLInputElement>) => {
@@ -854,14 +870,14 @@ function Dashboard() {
     const rarity = "rare"; 
     const soundPath = getAudioUrl(rarity);
     
-    sendNotification(
-      ach.title, 
-      ach.description, 
-      ach.icon_url || game.icon, 
-      rarity, 
-      game.title,
+    sendNotification({
+      title: ach.title,
+      text: ach.description,
+      image: ach.icon_url || game.icon,
+      rarity,
+      gameTitle: game.title,
       soundPath
-    );
+    });
   };
 
   const handleDebugTest = async () => {
