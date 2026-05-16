@@ -455,11 +455,16 @@ app.get("/api/ra/games", async (req, res) => {
     const notifications: any[] = [];
     const notifiedMap = getNotifiedAchievements();
 
-    for (const game of result) {
+    const gamesToFetch = result.filter((game: any) => {
       const gameKey = `retroachievements-${game.id}`;
       const notifiedList = notifiedMap[gameKey] || [];
+      return game.unlocked_achievements > notifiedList.length;
+    });
 
-      if (game.unlocked_achievements > notifiedList.length) {
+    const notifChunkSize = 10;
+    for (let i = 0; i < gamesToFetch.length; i += notifChunkSize) {
+      const chunk = gamesToFetch.slice(i, i + notifChunkSize);
+      await Promise.all(chunk.map(async (game: any) => {
         try {
           // Fetch full list for detection
           const detailRes = await fetch(`https://retroachievements.org/API/API_GetGameInfoAndUserProgress.php?u=${raUser}&g=${game.id}&z=${raUser}&y=${raKey}`);
@@ -473,7 +478,7 @@ app.get("/api/ra/games", async (req, res) => {
           const newNotifs = await detectNewAchievements(game, internalAchs, "RetroAchievements");
           notifications.push(...newNotifs);
         } catch (e) {}
-      }
+      }));
     }
 
     res.json({ games: result, notifications });
