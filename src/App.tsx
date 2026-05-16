@@ -1807,7 +1807,6 @@ function Dashboard() {
                             onError={(e) => {
                               const target = e.target as HTMLImageElement;
                               console.error("❌ Kép betöltési hiba:", target.src);
-                              // target.src = "https://api.dicebear.com/7.x/identicon/svg?seed=" + ach.api_id;
                               addLog(`FAILED TO LOAD: ${target.src}`, 'error');
                             }}
                             className={`w-12 h-12 md:w-14 md:h-14 rounded-lg object-cover shadow-lg border ${
