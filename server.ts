@@ -1510,7 +1510,7 @@ app.get("/api/steam/games", async (req, res) => {
     const notifications: any[] = [];
     const notifiedMap = getNotifiedAchievements();
     
-    for (const game of result) {
+    const notificationPromises = result.map(async (game: any) => {
       const gameKey = `steam-${game.appid}`;
       const notifiedList = notifiedMap[gameKey] || [];
       
@@ -1521,10 +1521,14 @@ app.get("/api/steam/games", async (req, res) => {
           const apiKey = config.steamApiKey;
           const steamId = config.steamId;
           
-          const sRes = await fetch(`http://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/?key=${apiKey}&appid=${game.appid}&l=hungarian`);
-          const sData = await sRes.json();
-          const pRes = await fetch(`http://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v0001/?key=${apiKey}&steamid=${steamId}&appid=${game.appid}`);
-          const pData = await pRes.json();
+          const [sRes, pRes] = await Promise.all([
+            fetch(`http://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/?key=${apiKey}&appid=${game.appid}&l=hungarian`),
+            fetch(`http://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v0001/?key=${apiKey}&steamid=${steamId}&appid=${game.appid}`)
+          ]);
+          const [sData, pData] = await Promise.all([
+            sRes.json(),
+            pRes.json()
+          ]);
           
           const available = sData.game?.availableGameStats?.achievements || [];
           const progress = pData.playerstats?.achievements || [];
@@ -1539,12 +1543,18 @@ app.get("/api/steam/games", async (req, res) => {
             };
           });
 
-          const newNotifs = await detectNewAchievements(game, internalAchs, "Steam");
-          notifications.push(...newNotifs);
+          return await detectNewAchievements(game, internalAchs, "Steam");
         } catch (e) {
           console.error(`Steam notification fetch failed for ${game.name}`);
+          return [];
         }
       }
+      return [];
+    });
+
+    const notifResults = await Promise.all(notificationPromises);
+    for (const newNotifs of notifResults) {
+      notifications.push(...(newNotifs as any[]));
     }
 
     res.json({ games: result, notifications });
