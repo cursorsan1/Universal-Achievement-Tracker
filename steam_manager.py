@@ -215,26 +215,17 @@ class SteamManager:
             print(f"DEBUG: Error fetching achievements for {appid}: {e}")
             return []
 
-    def sync_all(self, use_cache: bool = True) -> List[Dict]:
-        """Teljes szinkronizáció okos összefésüléssel."""
+    def _load_cache(self) -> List[Dict]:
         existing_cache = []
         if os.path.exists(self.cache_file):
             try:
                 with open(self.cache_file, "r", encoding="utf-8") as f:
                     existing_cache = json.load(f)
-                    if use_cache:
-                        print(f"[Python] Using {len(existing_cache)} cached games.")
-                        return existing_cache
             except Exception as e:
                 print(f"[Python] Warning: Could not load cache: {e}")
+        return existing_cache
 
-        # Create lookup for existing detailed data
-        cache_lookup = {str(g['appid']): g for g in existing_cache}
-
-        print(f"Szinkronizálás indítása (SteamID: {self.steam_id})...")
-        games = self.fetch_owned_games()
-        played_games = [g for g in games if g.playtime_forever > 0]
-        
+    def _process_games(self, played_games: list, cache_lookup: dict) -> List[Dict]:
         result = []
         skipped_count = 0
         for game in played_games:
@@ -263,7 +254,9 @@ class SteamManager:
                 skipped_count += 1
 
         print(f"DEBUG: Filtered out {skipped_count} games with no achievements.")
+        return result
 
+    def _save_cache(self, result: List[Dict]) -> None:
         # Resilient Save: Use temporary file then rename
         temp_file = self.cache_file + ".tmp"
         try:
@@ -279,6 +272,23 @@ class SteamManager:
             print(f"[Python] CRITICAL: Failed to save cache: {e}")
             if os.path.exists(temp_file):
                 os.remove(temp_file)
+
+    def sync_all(self, use_cache: bool = True) -> List[Dict]:
+        """Teljes szinkronizáció okos összefésüléssel."""
+        existing_cache = self._load_cache()
+        if use_cache and existing_cache:
+            print(f"[Python] Using {len(existing_cache)} cached games.")
+            return existing_cache
+
+        # Create lookup for existing detailed data
+        cache_lookup = {str(g['appid']): g for g in existing_cache}
+
+        print(f"Szinkronizálás indítása (SteamID: {self.steam_id})...")
+        games = self.fetch_owned_games()
+        played_games = [g for g in games if g.playtime_forever > 0]
+
+        result = self._process_games(played_games, cache_lookup)
+        self._save_cache(result)
         
         return result
 
