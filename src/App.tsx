@@ -24,11 +24,11 @@ import { useState, useEffect, useMemo, useCallback, useRef, ChangeEvent } from "
 import { Routes, Route, useSearchParams } from "react-router-dom";
 
 // IPC helper
-const sendNotification = (title: string, text: string, image?: string, rarity?: string, gameTitle?: string, soundPath?: string) => {
+const sendNotification = (title: string, text: string, image?: string, rarity?: string, gameTitle?: string, soundPath?: string, notificationStyle?: any) => {
     if (window.require) {
         try {
             const { ipcRenderer } = window.require('electron');
-            ipcRenderer.send('show-notification', { title, text, image, rarity, gameTitle, soundPath });
+            ipcRenderer.send('show-notification', { title, text, image, rarity, gameTitle, soundPath, ...notificationStyle });
         } catch (e) {
             console.error('Electron IPC not available', e);
         }
@@ -43,6 +43,12 @@ const NotificationPopup = () => {
     const rarity = params.get('rarity') || 'common';
     const gameTitle = params.get('gameTitle') || '';
     const soundPath = params.get('soundPath') || '';
+
+    // CSS Config parameters
+    const bgColor = params.get('bgColor') || '#0f172a'; // slate-900 default
+    const textColor = params.get('textColor') || '#f8fafc'; // slate-50 default
+    const borderRadius = params.get('borderRadius') || '0.75rem'; // rounded-xl default
+    const padding = params.get('padding') || '1rem'; // p-4 default
   
     useEffect(() => {
       // Play sound based on soundPath or rarity fallback
@@ -68,8 +74,14 @@ const NotificationPopup = () => {
           animate={{ x: 0, opacity: 1 }}
           exit={{ x: 400, opacity: 0 }}
           transition={{ type: "spring", damping: 20, stiffness: 100 }}
+          style={{
+            backgroundColor: bgColor,
+            color: textColor,
+            borderRadius: borderRadius,
+            padding: padding,
+          }}
           className={`
-            bg-slate-900/95 border-2 border-slate-700/50 p-4 rounded-xl shadow-2xl text-white 
+            border-2 border-slate-700/50 shadow-2xl
             flex items-center gap-4 w-full h-[120px] backdrop-blur-md relative overflow-hidden
           `}
         >
@@ -273,6 +285,12 @@ function Dashboard() {
   const [notificationVolume, setNotificationVolume] = useState(80);
   const [notificationDuration, setNotificationDuration] = useState(5);
   const [notificationScale, setNotificationScale] = useState(1.0);
+  const [notificationStyle, setNotificationStyle] = useState({
+    bgColor: "#0f172a",
+    textColor: "#f8fafc",
+    borderRadius: "0.75rem",
+    padding: "1rem"
+  });
 
   const [xboxStatus, setXboxStatus] = useState<"ok" | "expired" | "idle">("idle");
   const [showXboxHelper, setShowXboxHelper] = useState(false);
@@ -341,6 +359,7 @@ function Dashboard() {
                 if (savedSettings.notificationVolume !== undefined) setNotificationVolume(savedSettings.notificationVolume);
                 if (savedSettings.notificationDuration !== undefined) setNotificationDuration(savedSettings.notificationDuration);
                 if (savedSettings.overlayPosition) setOverlayPosition(savedSettings.overlayPosition);
+                if (savedSettings.notificationStyle) setNotificationStyle(savedSettings.notificationStyle);
              }
            } catch (e) {
              console.warn("Electron IPC not available for config loading", e);
@@ -361,6 +380,7 @@ function Dashboard() {
           setGoldbergPath(prev => prev || data.goldbergPath || "");
           if (data.sounds) setRaritySounds(prev => ({...prev, ...data.sounds}));
           if (data.notificationScale !== undefined && !window.require) setNotificationScale(data.notificationScale);
+          if (data.notificationStyle) setNotificationStyle(data.notificationStyle);
         }
         
         const statusRes = await fetch("/api/sync-status");
@@ -768,7 +788,8 @@ function Dashboard() {
       notificationScale,
       notificationVolume,
       notificationDuration,
-      overlayPosition
+      overlayPosition,
+      notificationStyle
     };
 
     try {
@@ -827,7 +848,7 @@ function Dashboard() {
     const soundPath = getAudioUrl(rarity);
 
     // IPC Trigger
-    sendNotification(configData.title, configData.desc, icon, rarity, gameTitle, soundPath);
+    sendNotification(configData.title, configData.desc, icon, rarity, gameTitle, soundPath, notificationStyle);
   };
 
   const handleSoundUpload = (rarity: string, e: ChangeEvent<HTMLInputElement>) => {
@@ -860,7 +881,8 @@ function Dashboard() {
       ach.icon_url || game.icon, 
       rarity, 
       game.title,
-      soundPath
+      soundPath,
+      notificationStyle
     );
   };
 
@@ -1420,7 +1442,52 @@ function Dashboard() {
                           className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500" 
                         />
                       </div>
-                       <label className="text-sm font-medium text-slate-400 block pb-1 border-b border-slate-800">Egyedi Hangok (Raritás szerint)</label>
+                       <label className="text-sm font-medium text-slate-400 block pb-1 border-b border-slate-800 mt-6">CSS Konfigurátor</label>
+                       <div className="space-y-4 pt-2">
+                         <div className="space-y-2">
+                           <label className="text-[10px] uppercase font-bold text-slate-500 ml-1">Háttérszín (HEX/RGBA)</label>
+                           <input
+                             type="text"
+                             value={notificationStyle.bgColor}
+                             onChange={(e) => setNotificationStyle({...notificationStyle, bgColor: e.target.value})}
+                             placeholder="#0f172a vagy rgba(0,0,0,0.8)"
+                             className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-indigo-500/50 transition-all font-mono text-xs"
+                           />
+                         </div>
+                         <div className="space-y-2">
+                           <label className="text-[10px] uppercase font-bold text-slate-500 ml-1">Szövegszín (HEX)</label>
+                           <input
+                             type="text"
+                             value={notificationStyle.textColor}
+                             onChange={(e) => setNotificationStyle({...notificationStyle, textColor: e.target.value})}
+                             placeholder="#f8fafc"
+                             className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-indigo-500/50 transition-all font-mono text-xs"
+                           />
+                         </div>
+                         <div className="flex gap-4">
+                           <div className="space-y-2 flex-1">
+                             <label className="text-[10px] uppercase font-bold text-slate-500 ml-1">Kerekítés</label>
+                             <input
+                               type="text"
+                               value={notificationStyle.borderRadius}
+                               onChange={(e) => setNotificationStyle({...notificationStyle, borderRadius: e.target.value})}
+                               placeholder="12px, 0.75rem..."
+                               className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-indigo-500/50 transition-all font-mono text-xs"
+                             />
+                           </div>
+                           <div className="space-y-2 flex-1">
+                             <label className="text-[10px] uppercase font-bold text-slate-500 ml-1">Belső margó</label>
+                             <input
+                               type="text"
+                               value={notificationStyle.padding}
+                               onChange={(e) => setNotificationStyle({...notificationStyle, padding: e.target.value})}
+                               placeholder="16px, 1rem..."
+                               className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-indigo-500/50 transition-all font-mono text-xs"
+                             />
+                           </div>
+                         </div>
+                       </div>
+                       <label className="text-sm font-medium text-slate-400 block pb-1 border-b border-slate-800 mt-6">Egyedi Hangok (Raritás szerint)</label>
                        <div className="space-y-3">
                         {[
                           { id: 'common', label: 'Common', color: 'border-slate-500/50' },
@@ -1475,15 +1542,25 @@ function Dashboard() {
 
               <div className="p-4 bg-indigo-500/5 rounded-2xl border border-indigo-500/10">
                 <p className="text-xs text-slate-400 mb-4 font-bold text-center uppercase tracking-widest italic">Élő Előnézet (Húzd a csúszkát!)</p>
-                <div className="flex justify-center items-center h-24 overflow-hidden relative">
-                   <div style={{ transform: `scale(${notificationScale})`, transformOrigin: 'center' }}>
-                      <div className="glass-panel rounded-full px-6 py-4 flex items-center gap-4 min-w-[300px] border border-white/20">
-                        <div className="w-10 h-10 rounded-lg bg-indigo-500 flex items-center justify-center shrink-0">
+                <div className="flex justify-center items-center h-32 overflow-hidden relative bg-black/40 rounded-xl mt-2 p-4">
+                   <div style={{ transform: `scale(${notificationScale})`, transformOrigin: 'center', width: '100%', maxWidth: '380px' }}>
+                      <div
+                        style={{
+                          backgroundColor: notificationStyle.bgColor,
+                          color: notificationStyle.textColor,
+                          borderRadius: notificationStyle.borderRadius,
+                          padding: notificationStyle.padding,
+                        }}
+                        className="flex items-center gap-4 min-w-[300px] border-2 border-slate-700/50 shadow-2xl relative overflow-hidden"
+                      >
+                        <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500" />
+                        <div className="w-10 h-10 rounded-lg bg-indigo-500 flex items-center justify-center shrink-0 relative z-10">
                            <Trophy className="w-5 h-5 text-white" />
                         </div>
-                        <div className="flex-1 text-left">
-                           <p className="text-[8px] font-black uppercase text-white/40 mb-0.5">Teszt Játék</p>
-                           <h4 className="text-xs font-bold text-white">Achievement Feloldva!</h4>
+                        <div className="flex-1 text-left relative z-10">
+                           <p className="text-[8px] font-black uppercase mb-0.5 opacity-60">Teszt Játék</p>
+                           <h4 className="text-xs font-bold truncate">Achievement Feloldva!</h4>
+                           <p className="text-[10px] opacity-70 truncate mt-0.5">Nagyszerű munka!</p>
                         </div>
                       </div>
                    </div>

@@ -37,6 +37,12 @@ function getConfig() {
     rpcs3Path: "",
     goldbergPath: "",
     notificationScale: 1.0,
+    notificationStyle: {
+      bgColor: "#0f172a", // default tailwind slate-900
+      textColor: "#f8fafc", // default tailwind slate-50
+      borderRadius: "0.75rem", // default rounded-xl
+      padding: "1rem" // default p-4
+    },
     sounds: {
       common: "",
       rare: "",
@@ -413,7 +419,7 @@ app.get("/api/ra/games", async (req, res) => {
           
           const raIcon = game.ImageIcon && game.ImageIcon.startsWith('http') 
             ? game.ImageIcon 
-            : (game.ImageIcon ? `https://retroachievements.org${game.ImageIcon}` : "");
+            : (game.ImageIcon ? `https://media.retroachievements.org${game.ImageIcon}` : "");
 
           result.push({
             id: String(game.GameID),
@@ -428,10 +434,11 @@ app.get("/api/ra/games", async (req, res) => {
             completion_rate: completionRate
           });
         } catch (err) {
+          console.error(`Error fetching RA progress for game ${game.GameID}:`, err);
           // Ha egy játék részletei nem jönnek le, az alap adatokat adjuk hozzá
           const raIcon = game.ImageIcon && game.ImageIcon.startsWith('http') 
             ? game.ImageIcon 
-            : (game.ImageIcon ? `https://retroachievements.org${game.ImageIcon}` : "");
+            : (game.ImageIcon ? `https://media.retroachievements.org${game.ImageIcon}` : "");
             
           result.push({
             id: String(game.GameID),
@@ -507,8 +514,8 @@ app.get("/api/ra/achievements/:gameid", async (req, res) => {
       description: ach.Description,
       is_unlocked: !!ach.DateEarned,
       icon_url: !!ach.DateEarned 
-        ? `https://retroachievements.org/Badge/${ach.BadgeName}.png`
-        : `https://retroachievements.org/Badge/${ach.BadgeName}_lock.png`,
+        ? `https://media.retroachievements.org/Badge/${ach.BadgeName}.png`
+        : `https://media.retroachievements.org/Badge/${ach.BadgeName}_lock.png`,
       unlock_time: ach.DateEarned || null
     }));
 
@@ -527,10 +534,14 @@ app.get("/api/ra/achievements/:gameid", async (req, res) => {
 app.get("/api/xbox/games", async (req, res) => {
   const config = getConfig();
   const xuid = config.xboxXuid;
-  const authHeader = config.xboxAuthHeader;
+  let authHeader = config.xboxAuthHeader;
 
   if (!xuid || !authHeader) {
     return res.json([]);
+  }
+
+  if (!authHeader.includes('XBL3.0')) {
+    authHeader = `XBL3.0 x=${authHeader}`;
   }
 
   const cacheFile = path.join(CACHE_DIR, `xbox_games_${xuid}.json`);
@@ -779,9 +790,13 @@ app.get("/api/xbox/achievements/:scid/:titleId", async (req, res) => {
   const { scid, titleId } = req.params;
   const config = getConfig();
   const xuid = config.xboxXuid;
-  const authHeader = config.xboxAuthHeader;
+  let authHeader = config.xboxAuthHeader;
 
   if (!xuid || !authHeader) return res.json([]);
+
+  if (!authHeader.includes('XBL3.0')) {
+    authHeader = `XBL3.0 x=${authHeader}`;
+  }
 
   try {
     const response = await axios.get(`https://achievements.xboxlive.com/users/xuid(${xuid})/achievements`, {
@@ -1414,7 +1429,7 @@ app.get("/api/proxy-image", async (req, res) => {
 
 // API route to save config
 app.post("/api/config", (req, res) => {
-  const { steamApiKey, steamId, raUsername, raApiKey, xboxXuid, xboxAuthHeader, rpcs3Path, goldbergPath, sounds, notificationScale } = req.body;
+  const { steamApiKey, steamId, raUsername, raApiKey, xboxXuid, xboxAuthHeader, rpcs3Path, goldbergPath, sounds, notificationScale, notificationStyle } = req.body;
   const oldConfig = getConfig();
   const newConfig = { 
     ...oldConfig,
@@ -1427,6 +1442,7 @@ app.post("/api/config", (req, res) => {
     rpcs3Path,
     goldbergPath: goldbergPath !== undefined ? goldbergPath : oldConfig.goldbergPath,
     notificationScale: notificationScale !== undefined ? notificationScale : oldConfig.notificationScale,
+    notificationStyle: notificationStyle || oldConfig.notificationStyle,
     sounds: sounds || oldConfig.sounds
   };
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(newConfig, null, 2));

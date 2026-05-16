@@ -25,6 +25,7 @@
     "express": "^4.21.2",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
+    "ps-list": "^9.0.0",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "react-router-dom": "^7.15.0",
