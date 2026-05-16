@@ -107,7 +107,7 @@ ipcMain.handle('trigger-steam-sync', async () => {
 
 // Notification listener
 ipcMain.on('show-notification', (event, arg) => {
-  const { title, text, image, rarity, gameTitle, soundPath } = arg;
+  const { title, text, image, rarity, gameTitle, soundPath, bgColor, textColor, borderRadius, padding } = arg;
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width } = primaryDisplay.workAreaSize;
   
@@ -137,7 +137,11 @@ ipcMain.on('show-notification', (event, arg) => {
     image: image || '',
     rarity: rarity || 'common',
     gameTitle: gameTitle || '',
-    soundPath: soundPath || ''
+    soundPath: soundPath || '',
+    bgColor: bgColor || '',
+    textColor: textColor || '',
+    borderRadius: borderRadius || '',
+    padding: padding || ''
   });
 
   notificationWindow.loadURL(`${baseUrl}#/notification?${queryParams.toString()}`);
@@ -223,11 +227,110 @@ function createWindow() {
   });
 }
 
+let gameTrackingInterval: NodeJS.Timeout | null = null;
+let previouslyRunningGames = new Set<string>();
+
+async function startGameTracking() {
+  const psListModule = await import('ps-list');
+  const psList = psListModule.default;
+
+  const mappingPath = path.join(__dirname, '..', 'app_mapping.json');
+  let appMapping: Record<string, string> = {
+    "steam.exe": "Steam",
+    "rpcs3.exe": "RPCS3 Emulator",
+    "retroarch.exe": "RetroArch",
+    "xbapp.exe": "Xbox"
+  };
+
+  if (fs.existsSync(mappingPath)) {
+    try {
+      const data = fs.readFileSync(mappingPath, 'utf8');
+      appMapping = JSON.parse(data);
+    } catch (e) {
+      console.error("[Tracker] Failed to load app_mapping.json", e);
+    }
+  }
+
+  gameTrackingInterval = setInterval(async () => {
+    try {
+      const processes = await psList();
+      const runningGames = new Set<string>();
+
+      for (const p of processes) {
+        const procName = p.name.toLowerCase();
+        for (const [exeName, gameName] of Object.entries(appMapping)) {
+          if (procName === exeName.toLowerCase()) {
+            runningGames.add(gameName);
+          }
+        }
+      }
+
+      for (const gameName of runningGames) {
+        if (!previouslyRunningGames.has(gameName)) {
+          console.log(`[Tracker] Started tracking: ${gameName}`);
+
+          if (mainWindow) {
+            const primaryDisplay = screen.getPrimaryDisplay();
+            const { width } = primaryDisplay.workAreaSize;
+
+            const notificationWindow = new BrowserWindow({
+              width: 400,
+              height: 150,
+              x: width - 410,
+              y: 20,
+              frame: false,
+              alwaysOnTop: true,
+              transparent: true,
+              skipTaskbar: true,
+              show: false,
+              webPreferences: {
+                nodeIntegration: true,
+                contextIsolation: false,
+                autoplayPolicy: 'no-user-gesture-required'
+              }
+            });
+
+            const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+            const baseUrl = isDev ? 'http://localhost:5173' : `file://${path.join(__dirname, '../dist/index.html')}`;
+
+            const queryParams = new URLSearchParams({
+              title: "Game Detected",
+              text: `Tracking started for ${gameName}`,
+              image: "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=100&h=100&fit=crop",
+              rarity: "common",
+              gameTitle: gameName,
+              soundPath: ""
+            });
+
+            notificationWindow.loadURL(`${baseUrl}#/notification?${queryParams.toString()}`);
+
+            notificationWindow.once('ready-to-show', () => {
+              notificationWindow.show();
+            });
+
+            setTimeout(() => {
+              if (!notificationWindow.isDestroyed()) {
+                notificationWindow.close();
+              }
+            }, 6500);
+          }
+        }
+      }
+
+      previouslyRunningGames = runningGames;
+    } catch (err) {
+      console.error("[Tracker] Error polling processes:", err);
+    }
+  }, 10000); // 10 seconds
+}
+
 app.whenReady().then(async () => {
   startPythonServer();
   // Wait 2 seconds for Vite to be ready
   await new Promise(resolve => setTimeout(resolve, 2000));
   createWindow();
+
+  startGameTracking();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
