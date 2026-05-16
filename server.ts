@@ -8,7 +8,7 @@ import * as cheerio from "cheerio";
 
 dotenv.config();
 
-const app = express();
+export const app = express();
 const PORT = 3000;
 const CACHE_FILE = "steam_cache.json";
 
@@ -1440,12 +1440,11 @@ app.post("/api/config", (req, res) => {
 // API route to get Steam games
 app.get("/api/steam/games", async (req, res) => {
   const config = getConfig();
+  if (!config.steamApiKey || config.steamApiKey === "YOUR_STEAM_WEB_API_KEY" || !config.steamId) {
+    return res.status(400).json({ error: "Steam API credentials missing" });
+  }
   const apiKey = config.steamApiKey;
   const steamId = config.steamId;
-
-  if (!apiKey || !steamId) {
-    return res.json([]);
-  }
 
   // Check cache (only if not forcing refresh)
   const forceRefresh = req.query.refresh === "true";
@@ -1556,13 +1555,13 @@ app.get("/api/steam/games", async (req, res) => {
 });
 
 async function startServer() {
-  if (process.env.NODE_ENV !== "production") {
+  if (process.env.NODE_ENV !== "production" && process.env.NODE_ENV !== "test") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
-  } else {
+  } else if (process.env.NODE_ENV === "production") {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
     app.get("*all", (req, res) => {
@@ -1570,9 +1569,11 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  if (process.env.NODE_ENV !== "test") {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  }
 }
 
 startServer();
