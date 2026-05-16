@@ -104,8 +104,8 @@ class SteamManager:
         self.cache_file = cache_file
         self.base_url = "http://api.steampowered.com"
 
-    def fetch_owned_games(self) -> List[SteamGame]:
-        """Lekéri a felhasználó összes játékát."""
+    def _make_owned_games_request(self) -> list:
+        """Kiszolgálja a Steam API kérést a játékok lekéréséhez."""
         print(f"PYTHON_EXECUTING_SYNC: Using key {self.api_key[:5]}... and ID {self.steam_id}")
         url = f"{self.base_url}/IPlayerService/GetOwnedGames/v0001/"
         params = {
@@ -139,21 +139,30 @@ class SteamManager:
                 print("DEBUG: Steam returned 0 games. Check Privacy Settings!")
                 return []
             
-            games = []
-            for item in games_data:
-                app_id = item["appid"]
-                game_name = item["name"]
-                game = SteamGame(
-                    appid=app_id,
-                    name=game_name,
-                    playtime_forever=item.get("playtime_forever", 0),
-                    img_icon_url=item.get("img_icon_url", "")
-                )
-                games.append(game)
-            return games
+            return games_data
         except Exception as e:
             print(f"Hiba a játékok lekérésekor: {e}")
             return []
+
+    def _parse_owned_games(self, games_data: list) -> List[SteamGame]:
+        """Feldolgozza a Steam API válaszát és SteamGame objektumokat készít."""
+        games = []
+        for item in games_data:
+            app_id = item["appid"]
+            game_name = item["name"]
+            game = SteamGame(
+                appid=app_id,
+                name=game_name,
+                playtime_forever=item.get("playtime_forever", 0),
+                img_icon_url=item.get("img_icon_url", "")
+            )
+            games.append(game)
+        return games
+
+    def fetch_owned_games(self) -> List[SteamGame]:
+        """Lekéri a felhasználó összes játékát."""
+        games_data = self._make_owned_games_request()
+        return self._parse_owned_games(games_data)
 
     def fetch_achievements(self, appid: str) -> List[Achievement]:
         """Lekéri egy adott játék eredményeit és ikonjait."""
