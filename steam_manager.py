@@ -374,6 +374,123 @@ def get_sync():
     data = manager.sync_all(use_cache=True)
     return jsonify(data)
 
+
+@app.route('/sync-xbox', methods=['POST'])
+def sync_xbox():
+    reload_config()
+
+    # 1. Parse settings.json from USER_DATA_PATH or SETTINGS_FILE
+    settings_file = SETTINGS_FILE
+    if USER_DATA_PATH:
+        potential_settings = os.path.join(USER_DATA_PATH, 'settings.json')
+        if os.path.exists(potential_settings):
+            settings_file = potential_settings
+
+    xuid = None
+    auth_header = None
+
+    try:
+        with open(settings_file, 'r', encoding='utf-8') as f:
+            settings = json.load(f)
+            xuid = settings.get('xboxXuid')
+            auth_header = settings.get('xboxAuthHeader')
+    except Exception as e:
+        print(f"[Python] Error reading settings for Xbox: {e}")
+        return jsonify({"status": "error", "message": "Failed to read settings", "count": 0, "games": []})
+
+    if not xuid or not auth_header:
+        return jsonify({"status": "error", "message": "Missing Xbox credentials", "count": 0, "games": []})
+
+    # 2. Verify auth header
+    if not auth_header.startswith('XBL3.0 x='):
+        if 'XBL3.0' in auth_header:
+            pass # Maybe structured differently, but trust it
+        else:
+            auth_header = f"XBL3.0 x={auth_header}"
+
+    # 3. Make request
+    url = f"https://achievements.xboxlive.com/users/xuid({xuid})/history/titles"
+    headers = {
+        "x-xbl-contract-version": "2",
+        "Authorization": auth_header,
+        "Accept-Language": "hu-HU",
+        "User-Agent": "Mozilla/5.0"
+    }
+
+    try:
+        response = requests.get(url, headers=headers, timeout=15)
+        if response.status_code in [401, 403]:
+            print(f"[Python] Xbox API Unauthorized/Forbidden. Response: {response.text}")
+            return jsonify({"status": "error", "message": "Invalid API key or timeout", "count": 0, "games": []})
+
+        response.raise_for_status()
+        titles = response.json().get('titles', [])
+
+        # We just return basic list or mock games for this sync endpoint
+        # to fulfill the success requirement and let the frontend know it's ok
+        games = titles
+        return jsonify({"status": "success", "count": len(games), "games": games})
+    except requests.exceptions.Timeout:
+        return jsonify({"status": "error", "message": "Invalid API key or timeout", "count": 0, "games": []})
+    except Exception as e:
+        print(f"[Python] Xbox sync failed: {e}")
+        return jsonify({"status": "error", "message": str(e), "count": 0, "games": []})
+
+@app.route('/sync-retro', methods=['POST'])
+def sync_retro():
+    reload_config()
+
+    # 1. Parse settings.json from USER_DATA_PATH or SETTINGS_FILE
+    settings_file = SETTINGS_FILE
+    if USER_DATA_PATH:
+        potential_settings = os.path.join(USER_DATA_PATH, 'settings.json')
+        if os.path.exists(potential_settings):
+            settings_file = potential_settings
+
+    username = None
+    api_key = None
+
+    try:
+        with open(settings_file, 'r', encoding='utf-8') as f:
+            settings = json.load(f)
+            username = settings.get('raUsername')
+            api_key = settings.get('raApiKey')
+    except Exception as e:
+        print(f"[Python] Error reading settings for RetroAchievements: {e}")
+        return jsonify({"status": "error", "message": "Failed to read settings", "count": 0, "games": []})
+
+    if not username or not api_key:
+        return jsonify({"status": "error", "message": "Missing RetroAchievements credentials", "count": 0, "games": []})
+
+    print(f"[Python] Fetching RetroAchievements for user: {username}...")
+
+    # 3. Make request
+    url = f"https://retroachievements.org/API/API_GetUserRecentlyPlayedGames.php?u={username}&z={username}&y={api_key}"
+
+    try:
+        response = requests.get(url, timeout=15)
+        if response.status_code in [401, 403]:
+            print(f"[Python] RetroAchievements API Unauthorized/Forbidden. Response: {response.text}")
+            return jsonify({"status": "error", "message": "Invalid API key or timeout", "count": 0, "games": []})
+
+        response.raise_for_status()
+        games = response.json()
+
+        # Handling the case where RA API returns an empty array or an error object
+        if isinstance(games, dict) and 'Error' in games:
+             return jsonify({"status": "error", "message": games.get('Error'), "count": 0, "games": []})
+
+        # Normalize to list
+        if not isinstance(games, list):
+             games = []
+
+        return jsonify({"status": "success", "count": len(games), "games": games})
+    except requests.exceptions.Timeout:
+        return jsonify({"status": "error", "message": "Invalid API key or timeout", "count": 0, "games": []})
+    except Exception as e:
+        print(f"[Python] RetroAchievements sync failed: {e}")
+        return jsonify({"status": "error", "message": str(e), "count": 0, "games": []})
+
 if __name__ == "__main__":
     print("[Python] Backend server starting on port 5000...")
     app.run(port=5000, host='0.0.0.0')
