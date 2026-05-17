@@ -377,6 +377,7 @@ def get_sync():
 
 @app.route('/sync-xbox', methods=['POST'])
 def sync_xbox():
+    print("[Python] >>> RECEIVED XBOX SYNC REQUEST")
     reload_config()
 
     # 1. Parse settings.json from USER_DATA_PATH or SETTINGS_FILE
@@ -399,7 +400,8 @@ def sync_xbox():
         return jsonify({"status": "error", "message": "Failed to read settings", "count": 0, "games": []})
 
     if not xuid or not auth_header:
-        return jsonify({"status": "error", "message": "Missing Xbox credentials", "count": 0, "games": []})
+        print("[Python] Xbox sync skipped: No XUID or auth header configured.")
+        return jsonify({"status": "skipped", "message": "Missing credentials in settings"}), 200
 
     # 2. Verify auth header
     if not auth_header.startswith('XBL3.0 x='):
@@ -438,6 +440,7 @@ def sync_xbox():
 
 @app.route('/sync-retro', methods=['POST'])
 def sync_retro():
+    print("[Python] >>> RECEIVED RETROACHIEVEMENTS SYNC REQUEST")
     reload_config()
 
     # 1. Parse settings.json from USER_DATA_PATH or SETTINGS_FILE
@@ -460,7 +463,8 @@ def sync_retro():
         return jsonify({"status": "error", "message": "Failed to read settings", "count": 0, "games": []})
 
     if not username or not api_key:
-        return jsonify({"status": "error", "message": "Missing RetroAchievements credentials", "count": 0, "games": []})
+        print("[Python] RetroAchievements sync skipped: No username or API key configured.")
+        return jsonify({"status": "skipped", "message": "Missing credentials in settings"}), 200
 
     print(f"[Python] Fetching RetroAchievements for user: {username}...")
 

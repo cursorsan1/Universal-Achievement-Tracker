@@ -90,17 +90,53 @@ ipcMain.handle('save-settings', async (event, settings) => {
 
 ipcMain.handle('trigger-steam-sync', async () => {
   try {
-    console.log('[Electron] Sync request sent to Python...');
-    const response = await axios.post('http://localhost:5000/sync-steam', {
-      settingsPath: settingsPath
-    }, { timeout: 30000 }); // Increase timeout for sync
-    console.log('[Electron] Python sync response:', response.data);
-    if (mainWindow && response.data.games) {
-      mainWindow.webContents.send('steam-data-updated', response.data.games);
+    console.log('[Electron] Deep Sync request sent to Python for Steam, Xbox, and RetroAchievements...');
+
+    const results = await Promise.allSettled([
+      axios.post('http://localhost:5000/sync-steam', { settingsPath: settingsPath }, { timeout: 30000 }),
+      axios.post('http://localhost:5000/sync-xbox', { settingsPath: settingsPath }, { timeout: 30000 }),
+      axios.post('http://localhost:5000/sync-retro', { settingsPath: settingsPath }, { timeout: 30000 })
+    ]);
+
+    const steamResult = results[0];
+    const xboxResult = results[1];
+    const retroResult = results[2];
+
+    let responseData = { steam: null, xbox: null, retro: null };
+
+    if (steamResult.status === 'fulfilled') {
+      console.log('[Electron] Python Steam sync response:', steamResult.value.data);
+      responseData.steam = steamResult.value.data;
+      if (mainWindow && responseData.steam.games) {
+        mainWindow.webContents.send('steam-data-updated', responseData.steam.games);
+      }
+    } else {
+      console.error('[Electron] Failed to trigger Python Steam sync:', steamResult.reason.message);
     }
-    return response.data;
-  } catch (err) {
-    console.error('[Electron] Failed to trigger Python sync:', err.message);
+
+    if (xboxResult.status === 'fulfilled') {
+      console.log('[Electron] Python Xbox sync response:', xboxResult.value.data);
+      responseData.xbox = xboxResult.value.data;
+      if (mainWindow && responseData.xbox.games) {
+        mainWindow.webContents.send('xbox-data-updated', responseData.xbox.games);
+      }
+    } else {
+      console.error('[Electron] Failed to trigger Python Xbox sync:', xboxResult.reason.message);
+    }
+
+    if (retroResult.status === 'fulfilled') {
+      console.log('[Electron] Python RetroAchievements sync response:', retroResult.value.data);
+      responseData.retro = retroResult.value.data;
+      if (mainWindow && responseData.retro.games) {
+        mainWindow.webContents.send('retro-data-updated', responseData.retro.games);
+      }
+    } else {
+      console.error('[Electron] Failed to trigger Python RetroAchievements sync:', retroResult.reason.message);
+    }
+
+    return responseData;
+  } catch (err: any) {
+    console.error('[Electron] Failed to trigger Python deep sync:', err.message);
     throw new Error('A háttérfolyamat nem válaszol. Kérlek indítsd újra az appot!');
   }
 });
